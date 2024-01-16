@@ -111,8 +111,10 @@ class Paper_data(Dataset):
         return (
             self.param_shifted_paper[idx],
             self.param_unshifted_paper[idx],
-            self.data_shifted_paper[idx],
-            self.data_unshifted_paper[idx]
+            #self.data_shifted_paper[idx],
+            #self.data_unshifted_paper[idx]
+            color_shifted_paper,
+            color_unshifted_paper
         )
 
 def data_wrapper(data_dir='/nobackup/users/mmdesai/csv_files/'):
@@ -252,10 +254,10 @@ def train_one_epoch_se(epoch_index, data_loader, similarity_embedding, optimizer
     last_sim_loss = 0.
     for idx, val in enumerate(data_loader, 1):
         augmented_shift, unshifted_shift, augmented_data, unshifted_data = val      
-        augmented_shift = augmented_shift.reshape((-1,)+augmented_shift.shape[2:]).to('cuda')
-        unshifted_shift = unshifted_shift.reshape((-1,)+unshifted_shift.shape[2:]).to('cuda')
-        augmented_data = augmented_data.reshape((-1,)+augmented_data.shape[2:]).to('cuda')      
-        unshifted_data = unshifted_data.reshape((-1,)+unshifted_data.shape[2:]).to('cuda')
+        augmented_shift = augmented_shift.reshape((-1,)+augmented_shift.shape[2:]).to(device)
+        unshifted_shift = unshifted_shift.reshape((-1,)+unshifted_shift.shape[2:]).to(device)
+        augmented_data = augmented_data.reshape((-1,)+augmented_data.shape[2:]).to(device)      
+        unshifted_data = unshifted_data.reshape((-1,)+unshifted_data.shape[2:]).to(device)
         embedded_values_aug, _ = similarity_embedding(augmented_data)
         embedded_values_orig, _ = similarity_embedding(unshifted_data)
         similar_embedding_loss, _repr, _cov, _std = vicreg_loss(embedded_values_aug, embedded_values_orig, **vicreg_kwargs)
@@ -276,10 +278,10 @@ def val_one_epoch_se(epoch_index, data_loader, similarity_embedding, vicreg_loss
     last_sim_loss = 0.
     for idx, val in enumerate(data_loader, 1):
         augmented_shift, unshifted_shift, augmented_data, unshifted_data = val
-        augmented_shift = augmented_shift.reshape((-1,)+augmented_shift.shape[2:]).to('cuda')
-        unshifted_shift = unshifted_shift.reshape((-1,)+unshifted_shift.shape[2:]).to('cuda')
-        augmented_data = augmented_data.reshape((-1,)+augmented_data.shape[2:]).to('cuda')
-        unshifted_data = unshifted_data.reshape((-1,)+unshifted_data.shape[2:]).to('cuda')
+        augmented_shift = augmented_shift.reshape((-1,)+augmented_shift.shape[2:]).to(device)
+        unshifted_shift = unshifted_shift.reshape((-1,)+unshifted_shift.shape[2:]).to(device)
+        augmented_data = augmented_data.reshape((-1,)+augmented_data.shape[2:]).to(device)
+        unshifted_data = unshifted_data.reshape((-1,)+unshifted_data.shape[2:]).to(device)
         embedded_values_aug, _ = similarity_embedding(augmented_data)
         embedded_values_orig, _ = similarity_embedding(unshifted_data)
         similar_embedding_loss, _repr, _cov, _std = vicreg_loss(embedded_values_aug, embedded_values_orig, **vicreg_kwargs)
@@ -290,10 +292,14 @@ def val_one_epoch_se(epoch_index, data_loader, similarity_embedding, vicreg_loss
             running_sim_loss = 0.
     return last_sim_loss
 
-# training loop
-# writer = SummaryWriter()
-
 def train_se(config):
+    '''
+    Main training function.
+    Inputs:
+        config: a dictionary of values that are supplied to tune the similarity embedding
+    Outputs:
+        None
+    '''
     # define similarity embedding and put it on the gpu
     print('starting training')
     similarity_embedding = SimilarityEmbedding(config["num_dim"], config["num_hidden_layers_f"], config["num_hidden_layers_h"], config["num_blocks"], config["kernel_size"], config['num_dim_final']).to(device)
@@ -317,7 +323,7 @@ def train_se(config):
     param_shifted_paper = torch.load('/nobackup/users/mmdesai/newtensors/param_shifted_paper.pt')
     param_unshifted_paper = torch.load('/nobackup/users/mmdesai/newtensors/param_unshifted_paper.pt')
     print('finished getting tensors')
-    num_batches_paper_sample = 9989
+    num_batches_paper_sample = len(data_shifted_paper)
     dataset_paper = Paper_data(data_shifted_paper, data_unshifted_paper, param_shifted_paper, param_unshifted_paper, num_batches_paper_sample)
     print('dataset defined')
     train_set_size_paper = int(0.8 * num_batches_paper_sample)
@@ -339,12 +345,13 @@ def train_se(config):
     EPOCHS = 50
     epoch_number = 0
     for i in range(EPOCHS):
+        wt_repr, wt_cov, wt_std = (1, 1, 1)
         similarity_embedding.train(True)
-        avg_train_loss = train_one_epoch_se(epoch_number, train_data_loader_paper, similarity_embedding, optimizer, vicreg_loss)
+        avg_train_loss = train_one_epoch_se(epoch_number, train_data_loader_paper, similarity_embedding, optimizer, vicreg_loss, wt_repr=wt_repr, wt_cov=wt_cov, wt_std=wt_std)
         # no gradient tracking, for validation
         similarity_embedding.train(False)
         similarity_embedding.eval()
-        avg_val_loss = val_one_epoch_se(epoch_number, val_data_loader_paper, similarity_embedding, vicreg_loss)
+        avg_val_loss = val_one_epoch_se(epoch_number, val_data_loader_paper, similarity_embedding, vicreg_loss, wt_repr=wt_repr, wt_cov=wt_cov, wt_std=wt_std)
         print(f"Train/Val Sim Loss after epoch {epoch_number:} {avg_train_loss:.4f}/{avg_val_loss:.4f}".format(epoch_number, avg_train_loss, avg_val_loss))
         epoch_number += 1
         scheduler.step()
@@ -356,16 +363,68 @@ def train_se(config):
     print("Finished Training")
 
 def test_best_model(best_result, vicreg_loss, **vicreg_kwargs):
+    # load the best similarity embedding
     best_trained_model = SimilarityEmbedding(best_result.config["num_dim"], best_result.config["num_hidden_layers_f"], best_result.config["num_hidden_layers_h"], best_result.config["num_blocks"], best_result.config["kernel_size"], best_result.config['num_dim_final'])
+    # put the model on the gpu
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     best_trained_model.to(device)
+    # make a checkpoint
     checkpoint_path = os.path.join(best_result.checkpoint.to_directory(), "checkpoint.pt")
+    # load the model weights and save best model weights to a separate directory
     model_state, optimizer_state = torch.load(checkpoint_path)
     best_trained_model.load_state_dict(model_state)
     SAVEPATH = '/nobackup/users/mmdesai/bestembeddingweights/similarity-embedding-weights.pth'
     torch.save(model_state, SAVEPATH)
     print(best_trained_model.eval())
+    # define the loss
     vicreg_loss = VICRegLoss()
+    # get the data
+    data_shifted_paper = torch.load('/nobackup/users/mmdesai/newtensors/data_shifted_paper.pt')
+    data_unshifted_paper = torch.load('/nobackup/users/mmdesai/newtensors/data_unshifted_paper.pt')
+    param_shifted_paper = torch.load('/nobackup/users/mmdesai/newtensors/param_shifted_paper.pt')
+    param_unshifted_paper = torch.load('/nobackup/users/mmdesai/newtensors/param_unshifted_paper.pt')
+    num_batches_paper_sample = len(data_shifted_paper)
+    dataset_paper = Paper_data(data_shifted_paper, data_unshifted_paper, param_shifted_paper, param_unshifted_paper, num_batches_paper_sample)
+    train_set_size_paper = int(0.8 * num_batches_paper_sample)
+    val_set_size_paper = int(0.1 * num_batches_paper_sample)
+    test_set_size_paper = num_batches_paper_sample - train_set_size_paper - val_set_size_paper
+    train_data_paper, val_data_paper, test_data_paper = torch.utils.data.random_split(dataset_paper, [train_set_size_paper, val_set_size_paper, test_set_size_paper])
+    test_data_loader_paper = DataLoader(test_data_paper, batch_size=1, shuffle=False, num_workers=2)
+    running_sim_loss = 0
+    for idx, (_, shift_test, data_test, data_test_orig) in enumerate(test_data_loader_paper):
+        _ = _.squeeze(0).to(device)
+        shift_test = shift_test.squeeze(0).to(device)
+        data_test = data_test.squeeze(0).to(device)
+        data_test_orig = data_test_orig.squeeze(0).to(device)
+        with torch.no_grad():
+            embedded_values_aug, _ = best_trained_model(data_test)
+            embedded_values_orig, _ = best_trained_model(data_test_orig)
+            similar_embedding_loss, _repr, _cov, _std = vicreg_loss(embedded_values_aug, embedded_values_orig, **vicreg_kwargs)
+        running_sim_loss += similar_embedding_loss.item()
+        n = 1
+        if idx % n == 0:
+            last_sim_loss = running_sim_loss / n
+            print(f'Last {_repr.item():.2f}; {_cov.item():.2f}; {_std.item():.2f}')
+            running_sim_loss = 0.
+    print("Best trial test loss: {}".format(similar_embedding_loss))
+
+def prepare_data():
+    train_data_paper, val_data_paper, test_data_paper = data_wrapper(data_dir='/nobackup/users/mmdesai/csv_files/')
+    torch.save(train_data_paper, "./train_data_paper.pt")
+    torch.save(val_data_paper, "./val_data_paper.pt")
+    #torch.save(test_data_paper, "./test_data_paper.pt")
+    print(type(train_data_paper))
+    return test_data_paper
+
+def plot_embedding(best_result):
+    # get the best similarity embedding
+    num_dim = best_result.config["num_dim"]
+    similarity_embedding = SimilarityEmbedding(best_result.config["num_dim"], best_result.config["num_hidden_layers_f"], best_result.config["num_hidden_layers_h"], best_result.config["num_blocks"], best_result.config["kernel_size"], best_result.config['num_dim_final'])
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    similarity_embedding.to(device)
+    # do not train the embedding
+    similarity_embedding.train(False)
+    # get the data
     data_shifted_paper = torch.load('/nobackup/users/mmdesai/newtensors/data_shifted_paper.pt')
     data_unshifted_paper = torch.load('/nobackup/users/mmdesai/newtensors/data_unshifted_paper.pt')
     param_shifted_paper = torch.load('/nobackup/users/mmdesai/newtensors/param_shifted_paper.pt')
@@ -377,25 +436,78 @@ def test_best_model(best_result, vicreg_loss, **vicreg_kwargs):
     test_set_size_paper = num_batches_paper_sample - train_set_size_paper - val_set_size_paper
     train_data_paper, val_data_paper, test_data_paper = torch.utils.data.random_split(dataset_paper, [train_set_size_paper, val_set_size_paper, test_set_size_paper])
     test_data_loader_paper = DataLoader(test_data_paper, batch_size=1, shuffle=False, num_workers=2)
-    for idx, (_, shift_test, data_test, data_test_orig) in enumerate(test_data_loader_paper):
+    data_loader = test_data_loader_paper
+    # bin parameters
+    similarity_outputs_1 = []
+    for idx, (_, shift_test, data_test, data_test_orig) in enumerate(data_loader):
         _ = _.reshape((-1,)+_.shape[2:]).to(device)
         data_test = data_test.reshape((-1,)+data_test.shape[2:]).to(device)
         data_test_orig = data_test_orig.reshape((-1,)+data_test_orig.shape[2:]).to(device)
         shift_test = shift_test.reshape((-1,)+shift_test.shape[2:]).to(device)
+        if not ((shift_test[0][0][0] < -1.5) and (shift_test[0][0][0] > -1.75)):
+            continue
+        if not ((shift_test[0][0][1] < -1.03) and (shift_test[0][0][1] > -1.0925)):
+            continue
+        if not ((shift_test[0][0][2] < -5) and (shift_test[0][0][2] > -6)):
+            continue
         with torch.no_grad():
-            embedded_values_aug, _ = best_trained_model(data_test)
-            embedded_values_orig, _ = best_trained_model(data_test_orig)
-            similar_embedding_loss, _repr, _cov, _std = vicreg_loss(embedded_values_aug, embedded_values_orig, **vicreg_kwargs)
-    print("Best trial test loss: {}, rep: {}, cov: {}, std: {}".format(similar_embedding_loss, _repr, _cov, _std))
-
-
-def prepare_data():
-    train_data_paper, val_data_paper, test_data_paper = data_wrapper(data_dir='/nobackup/users/mmdesai/csv_files/')
-    torch.save(train_data_paper, "./train_data_paper.pt")
-    torch.save(val_data_paper, "./val_data_paper.pt")
-    #torch.save(test_data_paper, "./test_data_paper.pt")
-    print(type(train_data_paper))
-    return test_data_paper
+            _, similarity_output = similarity_embedding(data_test)
+        similarity_outputs_1.append(similarity_output)  
+    similarity_outputs_2 = []
+    for idx, (_, shift_test, data_test, data_test_orig) in enumerate(data_loader):
+        _ = _.reshape((-1,)+_.shape[2:]).to(device)
+        data_test = data_test.reshape((-1,)+data_test.shape[2:]).to(device)
+        data_test_orig = data_test_orig.reshape((-1,)+data_test_orig.shape[2:]).to(device)
+        shift_test = shift_test.reshape((-1,)+shift_test.shape[2:]).to(device)
+        if not ((shift_test[0][0][0] < -1.75) and (shift_test[0][0][0] > -2)):
+            continue
+        if not ((shift_test[0][0][1] < -1.0925) and (shift_test[0][0][1] > -1.1550)):
+            continue
+        if not ((shift_test[0][0][2] < -6) and (shift_test[0][0][2] > -7)):
+            continue
+        with torch.no_grad():
+            _, similarity_output = similarity_embedding(data_test)
+        similarity_outputs_2.append(similarity_output)
+    similarity_outputs_3 = []
+    for idx, (_, shift_test, data_test, data_test_orig) in enumerate(data_loader):
+        _ = _.reshape((-1,)+_.shape[2:]).to(device)
+        data_test = data_test.reshape((-1,)+data_test.shape[2:]).to(device)
+        data_test_orig = data_test_orig.reshape((-1,)+data_test_orig.shape[2:]).to(device)
+        shift_test = shift_test.reshape((-1,)+shift_test.shape[2:]).to(device)
+        if not ((shift_test[0][0][0] < -2) and (shift_test[0][0][0] > -2.25)):
+            continue
+        if not ((shift_test[0][0][1] < -1.1550) and (shift_test[0][0][1] > -1.2175)):
+            continue
+        if not ((shift_test[0][0][2] < -7) and (shift_test[0][0][2] > -8)):
+            continue
+        with torch.no_grad():
+            _, similarity_output = similarity_embedding(data_test)
+        similarity_outputs_3.append(similarity_output)
+    similarity_outputs_4 = []
+    for idx, (_, shift_test, data_test, data_test_orig) in enumerate(data_loader):
+        _ = _.reshape((-1,)+_.shape[2:]).to(device)
+        data_test = data_test.reshape((-1,)+data_test.shape[2:]).to(device)
+        data_test_orig = data_test_orig.reshape((-1,)+data_test_orig.shape[2:]).to(device)
+        shift_test = shift_test.reshape((-1,)+shift_test.shape[2:]).to(device)
+        if not ((shift_test[0][0][0] < -2.25) and (shift_test[0][0][0] > -2.5)):
+            continue
+        if not ((shift_test[0][0][1] < -1.2175) and (shift_test[0][0][1] > -1.28)):
+            continue
+        if not ((shift_test[0][0][2] < -8) and (shift_test[0][0][2] > -9)):
+            continue
+        with torch.no_grad():
+            _, similarity_output = similarity_embedding(data_test)
+        similarity_outputs_4.append(similarity_output)
+    similarity_outputs_1 = torch.stack(similarity_outputs_1)
+    similarity_outputs_2 = torch.stack(similarity_outputs_2)
+    similarity_outputs_3 = torch.stack(similarity_outputs_3)
+    similarity_outputs_4 = torch.stack(similarity_outputs_4)
+    print(similarity_outputs_1.shape, similarity_outputs_2.shape, similarity_outputs_3.shape, similarity_outputs_4.shape)
+    figure = corner.corner(similarity_outputs_1.cpu().numpy().reshape((similarity_outputs_1.shape[0]*similarity_outputs_1.shape[1], num_dim)), quantiles=[0.16, 0.5, 0.84], color="C1")
+    figure = corner.corner(similarity_outputs_2.cpu().numpy().reshape((similarity_outputs_2.shape[0]*similarity_outputs_2.shape[1], num_dim)), quantiles=[0.16, 0.5, 0.84], fig=figure, color="C2")
+    figure = corner.corner(similarity_outputs_3.cpu().numpy().reshape((similarity_outputs_3.shape[0]*similarity_outputs_3.shape[1], num_dim)), quantiles=[0.16, 0.5, 0.84], fig=figure, color="C3")
+    figure = corner.corner(similarity_outputs_4.cpu().numpy().reshape((similarity_outputs_4.shape[0]*similarity_outputs_4.shape[1], num_dim)), quantiles=[0.16, 0.5, 0.84], fig=figure, color="C4")
+    plt.savefig('allparametersembedded.pdf')
 
 
 #def verify_data():
@@ -453,8 +565,9 @@ def main(num_samples=10, max_num_epochs=50, gpus_per_trial=1):
         best_result.metrics["avg_val_loss"]))
 
     test_best_model(best_result, vicreg_loss)
+    plot_embedding(best_result)
 
-main(num_samples=50, max_num_epochs=50, gpus_per_trial=1)
+main(num_samples=5, max_num_epochs=10, gpus_per_trial=1)
 
 
 
