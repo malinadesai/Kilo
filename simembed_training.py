@@ -40,7 +40,7 @@ num_repeats = 50
 num_channels = 3
 num_points = 121
 in_features = num_points
-data_dir = '/nobackup/users/mmdesai/csv_files/'
+data_dir = '/nobackup/users/mmdesai/temp_csv/'
 
 # functions
 def load_in_data(data_dir, name, csv_no, num_points=num_points, num_repeats=num_repeats):
@@ -83,38 +83,42 @@ def repeated_df_to_tensor(df_varied, df_fixed, batches):
         param_unshifted_list.append(param_unshifted)
     return data_shifted_list, data_unshifted_list, param_shifted_list, param_unshifted_list
 
+
 class Paper_data(Dataset):
-    def __init__(self, data_shifted_paper, data_unshifted_paper,
-                 param_shifted_paper, param_unshifted_paper,
-                 num_batches_paper_sample):
+    def __init__(self, 
+                 data_shifted, 
+                 data_unshifted,
+                 param_shifted, 
+                 param_unshifted,
+                 num_batches):
         super().__init__()
-        self.data_shifted_paper = data_shifted_paper
-        self.data_unshifted_paper = data_unshifted_paper
-        self.param_shifted_paper = param_shifted_paper
-        self.param_unshifted_paper = param_unshifted_paper
-        self.num_batches_paper_sample = num_batches_paper_sample
+        self.data_shifted = data_shifted
+        self.data_unshifted = data_unshifted
+        self.param_shifted = param_shifted
+        self.param_unshifted = param_unshifted
+        self.num_batches = num_batches
 
     def __len__(self):
-        return self.num_batches_paper_sample
+        return self.num_batches
 
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
             idx = idx.tolist()
-        gr_color = self.data_shifted_paper[idx][:, 0, :] - self.data_shifted_paper[idx][:, 1, :]
-        gi_color = self.data_shifted_paper[idx][:, 0, :] - self.data_shifted_paper[idx][:, 2, :]
-        ri_color = self.data_shifted_paper[idx][:, 1, :] - self.data_shifted_paper[idx][:, 2, :]
-        color_shifted_paper = torch.stack((gr_color, gi_color, ri_color), dim = 1)
-        gr_color_fix = self.data_unshifted_paper[idx][:, 0, :] - self.data_unshifted_paper[idx][:, 1, :]
-        gi_color_fix = self.data_unshifted_paper[idx][:, 0, :] - self.data_unshifted_paper[idx][:, 2, :]
-        ri_color_fix = self.data_unshifted_paper[idx][:, 1, :] - self.data_unshifted_paper[idx][:, 2, :]
-        color_unshifted_paper = torch.stack((gr_color_fix, gi_color_fix, ri_color_fix), dim = 1)
+        gr_color = self.data_shifted[idx][:, 0, :] - self.data_shifted[idx][:, 1, :]
+        gi_color = self.data_shifted[idx][:, 0, :] - self.data_shifted[idx][:, 2, :]
+        ri_color = self.data_shifted[idx][:, 1, :] - self.data_shifted[idx][:, 2, :]
+        color_shifted = torch.stack((gr_color, gi_color, ri_color), dim = 1)
+        gr_color_fix = self.data_unshifted[idx][:, 0, :] - self.data_unshifted[idx][:, 1, :]
+        gi_color_fix = self.data_unshifted[idx][:, 0, :] - self.data_unshifted[idx][:, 2, :]
+        ri_color_fix = self.data_unshifted[idx][:, 1, :] - self.data_unshifted[idx][:, 2, :]
+        color_unshifted = torch.stack((gr_color_fix, gi_color_fix, ri_color_fix), dim = 1)
         return (
-            self.param_shifted_paper[idx],
-            self.param_unshifted_paper[idx],
-            #self.data_shifted_paper[idx],
-            #self.data_unshifted_paper[idx]
-            color_shifted_paper,
-            color_unshifted_paper
+            self.param_shifted[idx],
+            self.param_unshifted[idx],
+            self.data_shifted_paper[idx],
+            self.data_unshifted_paper[idx]
+            #color_shifted,
+            #color_unshifted
         )
 
 def data_wrapper(data_dir='/nobackup/users/mmdesai/csv_files/'):
