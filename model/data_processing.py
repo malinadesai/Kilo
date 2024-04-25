@@ -18,7 +18,6 @@ detection_limit = 22.0
 num_repeats = 50
 num_channels = 3
 num_points = 121
-in_features = num_points
 
 t_zero = 44242.00021937881
 t_min = 44240.00050450478
