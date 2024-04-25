@@ -229,8 +229,174 @@ def load_in_data(data_dir, name, csv_no, num_points=num_points, num_repeats=num_
         batch_no += 1
     data_df['batch_id'] = batch_list
     return data_df
+    
+def match_fix_to_var(data_dir, name1, name2, start, stop, num_points=num_points, num_repeats=num_repeats):
+    '''
+    Matches the shifted injection light curve data to its fixed counterpart
+    Inputs:
+        data_dir: directory containing the data
+        name1: label of the varied csv files
+        name2: label of the fixed csv files
+        start: starting csv number
+        stop: ending csv number
+        num_points: number of points in the light curve
+        num_repeats: number of repeated mass, velocity, lanthanide injections
+    Outputs:
+        fixed_data_df: returns the fixed portion of the light curve data
+        varied_data_df: returns the shifted/varied portion of the light curve data
+    '''
+    # initiate list for dataframes
+    fixed_list = []
+    varied_list = []
+    # do all data processing for a given number of dataframes
+    for i in range (start, stop):
+        # load in the data
+        df_var = pd.read_csv(data_dir + '{}_{}.csv'.format(name1, i))
+        df_fix = pd.read_csv(data_dir + '{}_{}.csv'.format(name2, i))
+        # match the two dataframes to each other based on sim id
+        matched = df_var.merge(df_fix, left_on=['sim_id', df_var.groupby('sim_id').cumcount()],
+                               right_on=['sim_id', df_fix.groupby('sim_id').cumcount()])
+        # grab the fixed and varied portions of the dataframe
+        fix_df = matched.iloc[:, 12:]
+        var_df = matched.iloc[:, :12]
+        # adjust columns and column names
+        fix_df.columns = fix_df.columns.str.rstrip('_y')
+        var_df.columns = var_df.columns.str.rstrip('_x')
+        var_df = var_df.drop(columns=['key_1'])
+        # add to list of dataframes
+        fixed_list.append(fix_df)
+        varied_list.append(var_df)
+    # concatenate the list of dataframes together
+    fixed_data_df = pd.concat(fixed_list)
+    varied_data_df = pd.concat(varied_list)
+    # overwrite the simulation id's and add batch id's
+    num_sims = int(len(fixed_data_df)/num_points)
+    sim_list = []
+    sim_no = 0
+    for i in range(0, num_sims):
+        for j in range(0, num_points):
+            sim_list.append(sim_no)
+        sim_no += 1
+    fixed_data_df['sim_id'] = sim_list
+    varied_data_df['sim_id'] = sim_list
+    batch_list = []
+    batch_no = 0
+    num_batches = int((len(fixed_data_df)/num_points)/num_repeats)
+    fixed_data_df = fixed_data_df.iloc[0:(num_batches*num_points*num_repeats), :].copy()
+    varied_data_df = varied_data_df.iloc[0:(num_batches*num_points*num_repeats), :].copy()
+    for i in range(0, num_batches):
+        for j in range(0, num_points*num_repeats):
+            batch_list.append(batch_no)
+        batch_no += 1
+    fixed_data_df['batch_id'] = batch_list
+    varied_data_df['batch_id'] = batch_list
+    
+    return fixed_data_df, varied_data_df
 
+def matched(data_dir, name1, name2, start, stop, num_points=num_points, num_repeats=num_repeats):
+    '''
+    Matches light curves with the same injection parameters
+    Inputs:
+        data_dir: file path for data
+        name1: label of the varied csv files
+        name2: label of the fixed csv files
+        start: starting csv number
+        stop: ending csv number
+        num_points: number of points in the light curve
+        num_repeats: number of repeated mass, velocity, lanthanide injections
+    Outputs:
+        matched_df: combined dataframe of the shifted and fixed light curves
+    '''
+    # initiate list for dataframes
+    matched_list = []
+    # do all data processing for a given number of dataframes
+    for i in range (start, stop):
+        # load in the data
+        df_var = pd.read_csv(data_dir + '{}_{}.csv'.format(name1, i))
+        df_fix = pd.read_csv(data_dir + '{}_{}.csv'.format(name2, i))
+        # match the two dataframes to each other based on sim id
+        matched = df_var.merge(df_fix, left_on=['sim_id', df_var.groupby('sim_id').cumcount()],
+                               right_on=['sim_id', df_fix.groupby('sim_id').cumcount()])
+        matched_list.append(matched)
+    matched_df = pd.concat(matched_list)
+    return matched_df
 
+def add_batch_sim_nums_all(df, num_points=num_points, num_repeats=num_repeats):
+    '''
+    Adds a simulation and batch id number to each light curve
+    Inputs:
+        df: dataframe containing light curve data
+        num_points: number of points in the light curve
+        num_repeats: number of repeated mass, velocity, lanthanide injections
+    Outputs:
+        None
+    '''
+    num_batches_split = int((len(df)/num_points)/num_repeats)
+    batch_list_split = []
+    batch_no = 0
+    for i in range(0, num_batches_split):
+        for j in range(0, num_repeats*num_points):
+            batch_list_split.append(batch_no)
+        batch_no += 1
+    df['batch_id'] = batch_list_split
+
+    num_sims_split = int(len(df)/num_points)
+    sim_list_split = []
+    sim_no = 0
+    for i in range(0, num_sims_split):
+        for j in range(0, num_points):
+            sim_list_split.append(sim_no)
+        sim_no += 1
+    df['sim_id'] = sim_list_split
+
+def get_test_names(path, label, set, num):
+    ''' 
+    Gets the file path for the fixed data
+    Inputs:
+        path = string, directory to point to
+        label = string, label assigned during nmma light curve generation
+        set = int, number in directory name
+        num = int, number of files to unpack
+    Returns: 
+        list, contains full path file names
+    '''
+    file_names = [0] * num
+    for i in range(0, num):
+        one_name = path + '/{}{}_{}.json'.format(label, set, i)
+        file_names[i] = one_name
+    return file_names
+
+def repeated_df_to_tensor(df_varied, df_fixed, batches):
+    '''
+    Converts dataframes into pytorch tensors
+    Inputs:
+        df_varied: dataframe containing the shifted light curve information
+        df_fixed: dataframe containing the analagous fixed light curve information
+        batches: number of unique mass, velocity, and lanthanide injections
+    Outputs:
+        data_shifted_list: list of tensors of shape [repeats, channels, num_points] containing the shifted light curve photometry
+        data_unshifted_list: list of tensors of shape [repeats, channels, num_points] containing the fixed light curve photometry
+        param_shifted_list: list of tensors of shape [repeats, 1, 5] containing the injection parameters of the shifted light curves
+        param_unshifted_list: list of tensors of shape [repeats, 1, 5] containing the injection parameters of the fixed light curves
+    '''
+    data_shifted_list = []
+    data_unshifted_list = []
+    param_shifted_list = []
+    param_unshifted_list = []
+    for idx in tqdm(range(0, batches)):
+        data_shifted = torch.tensor(df_varied.loc[df_varied['batch_id'] == idx].iloc[:, 1:4].values.reshape(num_repeats, num_points, num_channels), 
+                                    dtype=torch.float32).transpose(1, 2)
+        data_unshifted = torch.tensor(df_fixed.loc[df_fixed['batch_id'] == idx].iloc[:, 1:4].values.reshape(num_repeats, num_points, num_channels), 
+                                    dtype=torch.float32).transpose(1, 2)
+        param_shifted = torch.tensor(df_varied.loc[df_varied['batch_id'] == idx].iloc[::num_points, 6:11].values, 
+                                    dtype=torch.float32).unsqueeze(2).transpose(1,2)
+        param_unshifted = torch.tensor(df_fixed.loc[df_fixed['batch_id'] == idx].iloc[::num_points, 5:10].values, 
+                                    dtype=torch.float32).unsqueeze(2).transpose(1,2)
+        data_shifted_list.append(data_shifted)
+        data_unshifted_list.append(data_unshifted)
+        param_shifted_list.append(param_shifted)
+        param_unshifted_list.append(param_unshifted)
+    return data_shifted_list, data_unshifted_list, param_shifted_list, param_unshifted_list
 
 
 
