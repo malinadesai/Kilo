@@ -1,37 +1,13 @@
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
-import matplotlib.lines as mlines
 import os, sys, time, glob
 import json
-import copy
-import scipy
-import argparse
 import warnings
 from tqdm import tqdm
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader, TensorDataset, random_split
-import torch.nn.functional as F
-from torch.utils.tensorboard import SummaryWriter
-import bilby
-from bilby.core.prior import Uniform, DeltaFunction
-from bilby.core.likelihood import GaussianLikelihood
-from nflows.nn.nets.resnet import ResidualNet
-from nflows import transforms, distributions, flows
-from nflows.distributions import StandardNormal
-from nflows.flows import Flow
-from nflows.transforms.autoregressive import MaskedAffineAutoregressiveTransform
-from nflows.transforms import CompositeTransform, RandomPermutation
 import nflows.utils as torchutils
 from IPython.display import clear_output
 from time import time
 from time import sleep
-import corner
-import torchvision
-import torchvision.transforms as transforms
 from os.path import exists
 from resnet import ResNet
 
