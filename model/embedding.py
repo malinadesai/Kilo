@@ -144,3 +144,92 @@ class SimilarityEmbedding(nn.Module):
             x = self.activation(x)
         x = self.final_layer(x)
         return x, representation
+
+def train_one_epoch_se(epoch_index, tb_writer, data_loader, **vicreg_kwargs):
+    '''
+    Training function
+    Inputs: 
+        epoch_index: current epoch number
+        data_loader: validation data in tensor format
+        similarity_embedding: ResNet to train
+        optimizer: desired optimization method
+        vicreg_loss: loss function
+        **vicreg_kwargs: additional loss function parameters to change loss weights
+    Outputs:
+        last_sim_loss: final loss calculation
+    '''
+    running_sim_loss = 0.
+    last_sim_loss = 0.
+
+    for idx, val in enumerate(data_loader, 1):
+        augmented_shift, unshifted_shift, augmented_data, unshifted_data = val      
+        augmented_shift = augmented_shift.reshape((-1,)+augmented_shift.shape[2:])
+        unshifted_shift = unshifted_shift.reshape((-1,)+unshifted_shift.shape[2:])
+        augmented_data = augmented_data.reshape((-1,)+augmented_data.shape[2:])   
+        unshifted_data = unshifted_data.reshape((-1,)+unshifted_data.shape[2:])
+
+        embedded_values_aug, _ = similarity_embedding(augmented_data)
+        embedded_values_orig, _ = similarity_embedding(unshifted_data)
+        similar_embedding_loss, _repr, _cov, _std = vicreg_loss(
+            embedded_values_aug,
+            embedded_values_orig,
+            **vicreg_kwargs
+        )
+        optimizer.zero_grad()
+        similar_embedding_loss.backward()
+        optimizer.step()
+
+        # Gather data and report
+        running_sim_loss += similar_embedding_loss.item()
+        n = 10
+        if idx % n == 0:
+            last_sim_loss = running_sim_loss / n
+            print(' Avg. train loss/batch after {} batches = {:.4f}'.format(idx, last_sim_loss))
+            print(f'Last {_repr.item():.2f}; {_cov.item():.2f}; {_std.item():.2f}')
+            tb_x = epoch_index * len(data_loader) + idx
+            tb_writer.add_scalar('SimLoss/train', last_sim_loss, tb_x)
+            running_sim_loss = 0.
+
+    return last_sim_loss
+
+def val_one_epoch_se(epoch_index, tb_writer, data_loader, **vicreg_kwargs):
+    '''
+    Validation training function
+    Inputs: 
+        epoch_index: current epoch number
+        data_loader: validation data in tensor format
+        similarity_embedding: ResNet to train
+        vicreg_loss: loss function
+        **vicreg_kwargs: additional loss function parameters to change loss weights
+    Outputs:
+        last_sim_loss: final loss calculation
+    '''
+    running_sim_loss = 0.
+    last_sim_loss = 0.
+
+    for idx, val in enumerate(data_loader, 1):
+        augmented_shift, unshifted_shift, augmented_data, unshifted_data = val
+        augmented_shift = augmented_shift.reshape((-1,)+augmented_shift.shape[2:])
+        unshifted_shift = unshifted_shift.reshape((-1,)+unshifted_shift.shape[2:])
+        augmented_data = augmented_data.reshape((-1,)+augmented_data.shape[2:])
+        unshifted_data = unshifted_data.reshape((-1,)+unshifted_data.shape[2:])
+
+        embedded_values_aug, unshifted_shift = similarity_embedding(augmented_data)
+        embedded_values_orig, unshifted_shift = similarity_embedding(unshifted_data)
+        similar_embedding_loss, _repr, _cov, _std = vicreg_loss(
+            embedded_values_aug,
+            embedded_values_orig,
+            **vicreg_kwargs
+        )
+
+        running_sim_loss += similar_embedding_loss.item()
+        n = 1
+        if idx % n == 0:
+            last_sim_loss = running_sim_loss / n
+            tb_x = epoch_index * len(data_loader) + idx + 1
+            tb_writer.add_scalar('SimLoss/val', last_sim_loss, tb_x)
+            tb_writer.flush()
+            running_sim_loss = 0.
+    tb_writer.flush()
+
+    return last_sim_loss
