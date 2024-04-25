@@ -5,6 +5,12 @@ from torch.utils.data import Dataset, DataLoader, TensorDataset, random_split
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 
+bands = ['ztfg', 'ztfr', 'ztfi']
+detection_limit = 22.0
+num_repeats = 50
+num_channels = 3
+num_points = 121
+
 class VICRegLoss(nn.Module):
     ''' 
     Variance-Invariance-Covariance Regularization Loss Function
