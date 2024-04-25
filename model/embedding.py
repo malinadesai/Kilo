@@ -4,6 +4,7 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader, TensorDataset, random_split
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
+from resnet import ResNet
 
 bands = ['ztfg', 'ztfr', 'ztfi']
 detection_limit = 22.0
@@ -97,7 +98,8 @@ class ConvResidualNet(nn.Module):
                  kernel_size, 
                  activation=F.relu, 
                  dropout_probability=0.1, 
-                 use_batch_norm=True):
+                 use_batch_norm=True,
+                ):
         '''
         Inputs:
             in_channels: starting number of channels, ie number of photometric bands
@@ -133,7 +135,17 @@ class SimilarityEmbedding(nn.Module):
     '''
     A fully connective neural network with a ResNet layer f  and an expander layer h
     '''
-    def __init__(self, num_dim=3, num_hidden_layers_f=1, num_hidden_layers_h=1, num_blocks=4, kernel_size=5, num_dim_final=10, activation=torch.tanh):
+    def __init__(self, 
+                 num_dim=3, 
+                 num_hidden_layers_f=1, 
+                 num_hidden_layers_h=1, 
+                 num_blocks=4, 
+                 kernel_size=5, 
+                 num_dim_final=10, 
+                 activation=torch.tanh,
+                 num_channels=num_channels,
+                 num_points=num_points
+                ):
         super(SimilarityEmbedding, self).__init__()
         self.layer_norm = nn.LayerNorm([num_channels, num_points])
         self.num_hidden_layers_f = num_hidden_layers_f
