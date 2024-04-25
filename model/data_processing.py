@@ -177,6 +177,61 @@ def pad_the_data(actual_df, desired_count=num_points, filler_time_step=time_step
     assert(len(cat_df) == desired_count)
     return cat_df
 
+def pad_all_dfs(df_list):
+    '''
+    Pads multiple dataframes at a time
+    Inputs: 
+        df_list: list of dataframes to pad
+    Outputs:
+        padded_df_list: list of dataframes after padding
+    '''
+    padded_df_list = []
+    for i in tqdm(range(len(df_list))):
+        df = df_list[i]
+        sim_num = df.iloc[0, df.columns.get_loc('sim_id')]
+        det_num = df.iloc[0, df.columns.get_loc('num_detections')]
+        df = pad_the_data(df)
+        df['sim_id'] = np.full(len(df), sim_num)
+        df['num_detections'] = np.full(len(df), det_num)
+        padded_df_list.append(df)
+    return padded_df_list
+
+def load_in_data(data_dir, name, csv_no, num_points=num_points, num_repeats=num_repeats):
+    '''
+    Loading in multiple saved csv files containing light curve data as one dataframe
+    Inputs:
+        data_dir: directory containing the csv files
+        csv_no: number of csv files to load in
+        num_points: number of data points per light curve
+        num_repeats: repeats of injection parameters to determine batches
+    Outputs:
+        data_df: single dataframe containing the data 
+    '''
+    data_list = []
+    for i in range (0, csv_no):
+        data_list.append(pd.read_csv(data_dir + '{}_{}.csv'.format(name, i)))
+    data_df = pd.concat(data_list)
+    num_sims = int(len(data_df)/num_points)
+    sim_list = []
+    sim_no = 0
+    for i in range(0, num_sims):
+        for j in range(0, num_points):
+            sim_list.append(sim_no)
+        sim_no += 1
+    data_df['sim_id'] = sim_list
+    batch_list = []
+    batch_no = 0
+    num_batches = int((len(data_df)/num_points)/num_repeats)
+    data_df = data_df.iloc[0:(num_batches*num_points*num_repeats), :].copy()
+    for i in range(0, num_batches):
+        for j in range(0, num_points*num_repeats):
+            batch_list.append(batch_no)
+        batch_no += 1
+    data_df['batch_id'] = batch_list
+    return data_df
+
+
+
 
 
 
