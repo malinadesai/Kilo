@@ -40,6 +40,7 @@ class VICRegLoss(nn.Module):
         cov_loss = self.off_diagonal(cov_x).pow_(2).sum().div(D)
         cov_loss += self.off_diagonal(cov_y).pow_(2).sum().div(D)
         s = wt_repr*repr_loss + wt_cov*cov_loss + wt_std*std_loss
+        
         return s, repr_loss, cov_loss, std_loss
 
     def off_diagonal(self,cov):
@@ -47,6 +48,7 @@ class VICRegLoss(nn.Module):
         assert n == m
         # All off diagonal elements from complete batch flattened
         # import pdb; pdb.set_trace()
+        
         return cov.flatten(start_dim=1)[...,:-1].view(num_batch, n - 1, n + 1)[...,1:].flatten()
         
 class ConvResidualBlock(nn.Module):
@@ -88,6 +90,7 @@ class ConvResidualBlock(nn.Module):
         temps = self.activation(temps)
         temps = self.dropout(temps)
         temps = self.conv_layers[1](temps)
+        
         return inputs + temps
 
 class ConvResidualNet(nn.Module):
@@ -131,6 +134,7 @@ class ConvResidualNet(nn.Module):
         for block in self.blocks:
             temps = block(temps)
         outputs = self.final_layer(temps)
+        
         return outputs
 
 class SimilarityEmbedding(nn.Module):
@@ -170,16 +174,27 @@ class SimilarityEmbedding(nn.Module):
             x = layer(x)
             x = self.activation(x)
         x = self.final_layer(x)
+        
         return x, representation
 
-def train_one_epoch_se(epoch_index, tb_writer, data_loader, **vicreg_kwargs):
+def train_one_epoch_se(epoch_index, 
+                       tb_writer, 
+                       data_loader, 
+                       similarity_embedding, 
+                       optimizer, 
+                       verbose,
+                       vicreg_loss, 
+                       **vicreg_kwargs, 
+                       ):
     '''
     Training function
     Inputs: 
         epoch_index: current epoch number
+        tb_writer: writes to tensorboard
         data_loader: validation data in tensor format
         similarity_embedding: ResNet to train
         optimizer: desired optimization method
+        verbose: (bool) print loss after each epoch
         vicreg_loss: loss function
         **vicreg_kwargs: additional loss function parameters to change loss weights
     Outputs:
@@ -211,19 +226,26 @@ def train_one_epoch_se(epoch_index, tb_writer, data_loader, **vicreg_kwargs):
         n = 10
         if idx % n == 0:
             last_sim_loss = running_sim_loss / n
-            print(' Avg. train loss/batch after {} batches = {:.4f}'.format(idx, last_sim_loss))
-            print(f'Last {_repr.item():.2f}; {_cov.item():.2f}; {_std.item():.2f}')
+            if verbose == True:
+                print(' Avg. train loss/batch after {} batches = {:.4f}'.format(idx, last_sim_loss))
+                print(f'Last {_repr.item():.2f}; {_cov.item():.2f}; {_std.item():.2f}')
             tb_x = epoch_index * len(data_loader) + idx
             tb_writer.add_scalar('SimLoss/train', last_sim_loss, tb_x)
             running_sim_loss = 0.
-
+            
     return last_sim_loss
 
-def val_one_epoch_se(epoch_index, tb_writer, data_loader, **vicreg_kwargs):
+def val_one_epoch_se(epoch_index, 
+                     tb_writer, 
+                     data_loader, 
+                     similarity_embedding,
+                     vicreg_loss,
+                     **vicreg_kwargs):
     '''
     Validation training function
     Inputs: 
         epoch_index: current epoch number
+        tb_writer: writes to tensorboard
         data_loader: validation data in tensor format
         similarity_embedding: ResNet to train
         vicreg_loss: loss function
