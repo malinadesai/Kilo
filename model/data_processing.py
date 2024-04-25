@@ -398,7 +398,27 @@ def repeated_df_to_tensor(df_varied, df_fixed, batches):
         param_unshifted_list.append(param_unshifted)
     return data_shifted_list, data_unshifted_list, param_shifted_list, param_unshifted_list
 
+class Paper_data(Dataset):
+    def __init__(self, data_shifted_paper, data_unshifted_paper,
+                 param_shifted_paper, param_unshifted_paper,
+                 num_batches_paper_sample):
+        super().__init__()
+        self.data_shifted_paper = data_shifted_paper
+        self.data_unshifted_paper = data_unshifted_paper
+        self.param_shifted_paper = param_shifted_paper
+        self.param_unshifted_paper = param_unshifted_paper
+        self.num_batches_paper_sample = num_batches_paper_sample
 
+    def __len__(self):
+        return self.num_batches_paper_sample
 
-
-
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+            
+        return (
+            self.param_shifted_paper[idx].to(device),
+            self.param_unshifted_paper[idx].to(device),
+            self.data_shifted_paper[idx].to(device),
+            self.data_unshifted_paper[idx].to(device)
+        )
