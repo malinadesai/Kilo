@@ -88,7 +88,7 @@ def json_to_df(file_names, num_sims, detection_limit=detection_limit, bands=band
         df_list[i] = df_unpacked
     return df_list
 
-def gen_prepend_filler(data_filler, t_min, t_max, step = 0.25):
+def gen_prepend_filler(data_filler, t_min, t_max, step=time_step):
     '''
     front end padding
     Inputs:
@@ -106,7 +106,7 @@ def gen_prepend_filler(data_filler, t_min, t_max, step = 0.25):
     filler_df = pd.DataFrame(filler_dict)
     return filler_df
 
-def gen_append_filler(data_filler, t_min, count, step=0.25):
+def gen_append_filler(data_filler, t_min, count, step=time_step):
     '''
     back end padding
     Inputs:
