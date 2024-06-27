@@ -179,8 +179,8 @@ def train_one_epoch_se(epoch_index,
                        data_loader, 
                        similarity_embedding, 
                        optimizer, 
-                       verbose,
                        vicreg_loss, 
+                       verbose,
                        **vicreg_kwargs, 
                        ):
     '''
