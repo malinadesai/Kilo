@@ -53,7 +53,7 @@ class Flow_data(Dataset):
 class EmbeddingNet(nn.Module):
     """Wrapper around the similarity embedding defined above"""
     #def __init__(self, *args, **kwargs):
-    def __init__(self, similarity_embedding, *args, **kwargs):
+    def __init__(self, similarity_embedding, h_freeze = True, f_freeze = True, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.representation_net = similarity_embedding
         self.representation_net.load_state_dict(similarity_embedding.state_dict())
@@ -61,12 +61,12 @@ class EmbeddingNet(nn.Module):
         # the expander network is unused and hence don't track gradients
         for name, param in self.representation_net.named_parameters():
             if 'expander_layer' in name or 'layers_h' in name or 'final_layer' in name:
-                param.requires_grad = False
+                param.requires_grad = h_freeze 
         # set freeze status of part of the conv layer of embedding_net
             elif 'layers_f' in name:
-                param.requires_grad = True
+                param.requires_grad = f_freeze 
             else: 
-                param.requires_grad = True
+                param.requires_grad = h_freeze
         self.context_layer = nn.Sequential(
             nn.Linear(num_dim, 1000),
             nn.ReLU(),
