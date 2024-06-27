@@ -40,15 +40,12 @@ class VICRegLoss(nn.Module):
         cov_loss = self.off_diagonal(cov_x).pow_(2).sum().div(D)
         cov_loss += self.off_diagonal(cov_y).pow_(2).sum().div(D)
         s = wt_repr*repr_loss + wt_cov*cov_loss + wt_std*std_loss
-        
         return s, repr_loss, cov_loss, std_loss
 
     def off_diagonal(self,cov):
         num_batch, n, m = cov.shape
         assert n == m
         # All off diagonal elements from complete batch flattened
-        # import pdb; pdb.set_trace()
-        
         return cov.flatten(start_dim=1)[...,:-1].view(num_batch, n - 1, n + 1)[...,1:].flatten()
         
 class ConvResidualBlock(nn.Module):
