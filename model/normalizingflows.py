@@ -29,6 +29,26 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 num_dim = 7
 context_features = num_dim
 similarity_embedding = SimilarityEmbedding()
+num_points = 121
+
+class Flow_data(Dataset):
+    def __init__(self, data_shifted_flow, param_shifted_flow):
+        super().__init__()
+        self.data_shifted_flow = data_shifted_flow
+        self.param_shifted_flow = param_shifted_flow
+        self.num_lc_flow = num_lc_flow
+
+    def __len__(self):
+        return self.num_lc_flow
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+            
+        return (
+            self.param_shifted_flow[idx].to(device),
+            self.data_shifted_flow[idx].to(device),
+        )
 
 class EmbeddingNet(nn.Module):
     """Wrapper around the similarity embedding defined above"""
