@@ -106,7 +106,7 @@ def train_one_epoch(epoch_index, tb_writer, data_loader, flow, optimizer, flatte
     running_loss = 0.
     last_loss = 0.
     for idx, val in enumerate(data_loader, 1):
-        augmented_shift, unshifted_shift, augmented_data, unshifted_data = val
+        augmented_shift, augmented_data = val
         augmented_shift = augmented_shift[...,0:3].to(device)
         augmented_shift = augmented_shift.flatten(0, flatten_dim).to(device)
         augmented_data = augmented_data.reshape(-1, 3, num_points).to(device)
@@ -131,7 +131,7 @@ def val_one_epoch(epoch_index, tb_writer, data_loader, flow, flatten_dim):
     running_loss = 0.
     last_loss = 0.
     for idx, val in enumerate(data_loader, 1):
-        augmented_shift, unshifted_shift, augmented_data, unshifted_data = val
+        augmented_shift, augmented_data = val
         augmented_shift = augmented_shift[...,0:3].to(device)
         augmented_shift = augmented_shift.flatten(0, flatten_dim).to(device)
         augmented_data = augmented_data.reshape(-1, 3, num_points).to(device)
