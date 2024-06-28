@@ -1,2 +1,4 @@
 # Kilo
 Repository hosting development of ML methods investigating the EM counterparts to gravitational waves.
+
+Zenodo data link: https://zenodo.org/records/11640528?token=eyJhbGciOiJIUzUxMiJ9.eyJpZCI6IjM5YmEzNzFkLTA2YjEtNGNjMy1hNDcyLThlZGU2MzVjYzYwYiIsImRhdGEiOnt9LCJyYW5kb20iOiIxZmU1YzZiMzkwZTc4N2Q1Y2NiZmM1NDBlYzJmYTdmNSJ9.B9AB54KsWMRS__B_aSr2f2CAkfBtRPyfAH8SWeBhviO4mw0ecIiq8prO0CxwA4gbZom_Srw2AZ3SJL14J95mkA
