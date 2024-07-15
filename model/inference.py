@@ -22,7 +22,7 @@ from matplotlib.lines import Line2D
 
 num_points = 121
 
-def cast_as_bilby_result(samples, truth):
+def cast_as_bilby_result(samples, truth, priors):
     injections = dict.fromkeys({'log10_mej', 'log10_vej', 'log10_Xlan'})
     injections['log10_mej'] = float(truth.numpy()[0])
     injections['log10_vej'] = float(truth.numpy()[1])
