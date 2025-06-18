@@ -11,7 +11,6 @@ from time import sleep
 import torch
 from torch.utils.data import Dataset, DataLoader, TensorDataset, random_split
 from os.path import exists
-from .resnet import ResNet
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -21,10 +20,10 @@ def open_json(
     ''' 
     Opens a json file, loads data as a dictionary, and closes the file 
     Inputs:
-        file_name = /name of json file.json
-        dir_path = directory containing json files 
+        file_name: /name of json file.json
+        dir_path: directory containing json files 
     Outputs:
-        data = dictionary containing json content
+        data: dictionary containing json content
     '''
     f = open(dir_path + file_name)
     data = json.load(f)
@@ -37,12 +36,12 @@ def get_names(
     ''' 
     Gets the file path for the fixed data
     Inputs:
-        path = string, directory to point to
-        label = string, label assigned during nmma light curve generation
-        set = int, number in directory name
-        num = int, number of files to unpack
+        path: string, directory to point to
+        label: string, label assigned during nmma light curve generation
+        set: int, number in directory name
+        num: int, number of files to unpack
     Outputs: 
-        file_names = list, contains full path file names
+        file_names: list, contains full path file names
     '''
     file_names = [0] * num
     for i in range(0, num):
@@ -56,13 +55,13 @@ def json_to_df(
     file_name, dir_path, detection_limit, bands
 ):
     ''' 
-    Flattens a light curve json file into a dataframe
+    Flattens a light curve json file into a DataFrame
     Inputs:
-        file_name = light curve json file name
-        detection_limit = float, photometric detection limit
-        bands = list, contains the json photometry keys as strings
+        file_name: light curve json file name
+        detection_limit: float, photometric detection limit
+        bands: list, contains the json photometry keys as strings
     Outputs:
-        df_unpacked = dataframe containing the photometry data, time, 
+        df_unpacked: DataFrame containing the photometry data, time, 
                       and number of total detections across all bands
     '''
     data = open_json(file_name, dir_path)
@@ -88,7 +87,7 @@ def extract_number(
     '''
     Gets the number in a file name
     Inputs:
-        file_name = string, name of file that has a number
+        file_name: string, name of file that has a number
     Outputs:
         Number in file name, or inf if none
     '''
@@ -101,14 +100,14 @@ def directory_json_to_df(
     dir_path, label, detection_limit, bands
 ):
     '''
-    Takes a directory of light curves and converts them to dataframes
+    Takes a directory of light curves and converts them to DataFrames
     Inputs:
-        dir_path = directory containing light curve files
-        label = string, label used when generating the light curve data
-        detection_limit = float, photometric detection limit
-        bands = list, contains the json photometry keys as strings
+        dir_path: directory containing light curve files
+        label: string, label used when generating the light curve data
+        detection_limit: float, photometric detection limit
+        bands: list, contains the json photometry keys as strings
     Outputs:
-        df_list = list, contains all files as dataframes
+        df_list: list, contains all files as DataFrames
     '''
     df_list = []
     for file in sorted(os.listdir(dir_path), key=extract_number):
@@ -122,18 +121,18 @@ def directory_json_to_df(
 
 def pad_the_data(df, t_min, t_max, step, data_filler, bands):
     '''
-    Takes dataframes and adds filler values to both ends, preserves 
+    Takes DataFrames and adds filler values to both ends, preserves 
     original time information.
     Inputs:
-        df = dataframe with 't' and photometric columns 
-        t_min = float, global minimum start time
-        t_max = float, global maximum end time
-        step = float, time step between rows
-        data_filler = value to use in the filler rows
-        bands = list of photometric columns to fill
+        df: DataFrame with 't' and photometric columns 
+        t_min: float, global minimum start time
+        t_max: float, global maximum end time
+        step: float, time step between rows
+        data_filler: value to use in the filler rows
+        bands: list of photometric columns to fill
                 (e.g. ['ztfg', 'ztfr', 'ztfi'])
     Outputs:
-        df_padded = dataframe with original data and padded rows,
+        df_padded: DataFrame with original data and padded rows,
                     covering full time range
     '''
     df = df.copy()
@@ -157,25 +156,32 @@ def pad_the_data(df, t_min, t_max, step, data_filler, bands):
     append_df = make_filler(append_times)
     df_padded = pd.concat([prepend_df, df, append_df], ignore_index=True)
     df_padded = df_padded.sort_values('t').reset_index(drop=True)
-
     assert np.isclose(df_padded['t'].min(), t_min), \
     f"Start time is {df_padded['t'].min()}, expected {t_min}"
     assert np.isclose(df_padded['t'].max(), t_max - step), \
     f"End time is {df_padded['t'].max()}, expected {t_max - step}"
-    assert len(df_padded) == num_points+1, \
-    f"Length is {len(df_padded)}, expected {num_points}"
-    
+    try:
+        assert len(df_padded) == num_points+1, \
+        f"Length is {len(df_padded)}, expected {num_points+1}"
+    except AssertionError as e:
+        count = num_points + 1 - len(df_padded)
+        addt_times = np.arange(t_max, t_max+(step*count), step)
+        addt_append = make_filler(addt_times)
+        df_padded = pd.concat([df_padded, addt_append], ignore_index=True)
+        df_padded = df_padded.sort_values('t').reset_index(drop=True)
+        assert len(df_padded) == num_points+1, \
+        f"Length is {len(df_padded)}, expected {num_points+1}"
     return df_padded
 
 def pad_all_dfs(
     df_list, t_min, t_max, step, data_filler, bands
 ):
     '''
-    Pads multiple dataframes at a time
+    Pads multiple DataFrames at a time
     Inputs: 
-        df_list: list of dataframes to pad
+        df_list: list of DataFrames to pad
     Outputs:
-        padded_df_list: list of dataframes after padding
+        padded_df_list: list of DataFrames after padding
     '''
     padded_df_list = []
     for i in tqdm(range(len(df_list))):
@@ -189,6 +195,92 @@ def pad_all_dfs(
         df['num_detections'] = np.full(len(df), det_num)
         padded_df_list.append(df)
     return padded_df_list
+
+def find_min_max_t(
+    df_list
+):
+    '''
+    Finds the maximum and minimum time of all provided DataFrames 
+    Inputs:
+        df_list: list of DataFrames
+    Outputs:
+        t_min: float, minimum time across all DataFrames
+        t_max: float, maximum time across all DataFrames
+    '''
+    t_mins = []
+    t_maxs = []
+    for i in range(len(df_list)):
+        t_mins.append(df_list[i]['t'].min())
+        t_maxs.append(df_list[i]['t'].max())
+    t_min = min(t_mins)
+    t_max = max(t_maxs)
+    return t_min, t_max
+
+def grab_injection(
+    inj_file, dir_path
+):
+    '''
+    Reads in the injection file
+    Inputs:
+        inj_file: string, injection file name
+        dir_path: string, directory path
+    Outputs:
+        inj_df: DataFrame containing the injection parameters
+    '''
+    data = open_json(inj_file, dir_path)
+    content = data['injections']['content']
+    inj_df = pd.DataFrame.from_dict(content)
+    return inj_df
+
+def load_light_curves_df(
+    dir_path, 
+    inj_file, 
+    label, 
+    detection_limit, 
+    bands, 
+    step, 
+    data_filler,
+    num_repeats=1,
+    add_batch_id=False,
+):
+    '''
+    Converts NMMA generated light curves to a DataFrame
+    Inputs:
+        dir_path: string, directory path
+        inj_file: string, injection file name
+        label: string, label assigned during nmma light curve generation
+        detection_limit: float, photometric detection limit
+        bands: list of photometric columns to fill
+               (e.g. ['ztfg', 'ztfr', 'ztfi'])
+        step: float, time step between rows
+        data_filler: float, value to use in the filler rows
+    Outputs:
+        lc_df: DataFrame, contains light curve and injection data
+    '''
+    df_list = directory_json_to_df(
+        dir_path=dir_path, 
+        label=label, 
+        detection_limit=detection_limit, 
+        bands=bands)
+    t_min, t_max = find_min_max_t(df_list)
+    num_points = len(np.arange(t_min, t_max, step)) + 1
+    padded_list = pad_all_dfs(
+        df_list, 
+        t_min=t_min, 
+        t_max=t_max, 
+        step=step, 
+        data_filler=data_filler, 
+        bands=bands)
+    all_padded_lcs = pd.concat(padded_list).reset_index(drop=True)
+    inj_df = grab_injection(inj_file=inj_file, dir_path=dir_path)
+    lc_df = all_padded_lcs.merge(inj_df, on='simulation_id')
+    if num_repeats <= 0:
+        print('Warning: num_repeats must be at least 1 (for one lc!).' + 
+              'Defaulting to 1.')
+        num_repeats = 1
+    if add_batch_id == True:
+        lc_df['batch_id'] = lc_df.index // (num_points * num_repeats)
+    return lc_df
 
 def load_in_data(data_dir, name, csv_no, num_points=num_points, num_repeats=num_repeats):
     '''
