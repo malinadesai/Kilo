@@ -254,6 +254,8 @@ def load_light_curves_df(
                (e.g. ['ztfg', 'ztfr', 'ztfi'])
         step: float, time step between rows
         data_filler: float, value to use in the filler rows
+        num_repeats: int, number of repeated injections
+        add_batch_id: bool, adds batching based on repeats
     Outputs:
         lc_df: DataFrame, contains light curve and injection data
     '''
@@ -281,6 +283,137 @@ def load_light_curves_df(
     if add_batch_id == True:
         lc_df['batch_id'] = lc_df.index // (num_points * num_repeats)
     return lc_df
+
+def df_to_tensor(
+    lc_df, params, bands, num_repeats, num_points
+):
+    '''
+    Converts DataFrames into pytorch tensors
+    Inputs:
+        lc_df: DataFrame, contains data and injection parameters
+        params: list of injection parameters
+        bands: list of photometric columns to fill
+               (e.g. ['ztfg', 'ztfr', 'ztfi'])
+        num_repeats: int, number of repeated injections
+        num_points: int, length of each light curve
+    Outputs:
+        tensor_data: list of tensors containing lc data
+        tensor_params: list of tensors containing lc params
+    '''
+    num_channels = len(bands)
+    num_batches = len(lc_df['batch_id'].unique())
+    tensor_data = []
+    tensor_params = []
+    for idx in tqdm(range(0, num_batches)):
+        lc_data = torch.tensor(
+            lc_df[bands].loc[lc_df['batch_id'] == idx].values.reshape(
+                num_repeats, num_points, num_channels
+            ), 
+            dtype=torch.float32
+        ).transpose(1, 2)
+        lc_params = torch.tensor(
+            lc_df[params].loc[lc_df['batch_id'] == idx].iloc[::num_points].values, 
+            dtype=torch.float32
+        ).unsqueeze(2).transpose(1,2)
+        tensor_data.append(lc_data)
+        tensor_params.append(lc_params)
+    return tensor_data, tensor_params
+
+def load_embedding_dataset(
+    dir_path_fix,
+    dir_path_var, 
+    inj_file_fix,
+    inj_file_var, 
+    label_fix,
+    label_var,
+    detection_limit, 
+    bands, 
+    step, 
+    data_filler,
+    num_repeats=1,
+    add_batch_id=True,
+):
+    '''
+    Loads NMMA generated lc's into tensors suitable for training
+    Inputs:
+        dir_path_fix: string, directory path for fixed lcs
+        dir_path_var: string, directory path for varied lcs
+        inj_file_fix: string, injection file name for fixed lcs
+        inj_file_var: string, injection file name for varied lcs
+        label_fix: string, label assigned to fixed lcs
+        label_var: string, label assigned to varied lcs
+        detection_limit: float, photometric detection limit
+        bands: list of photometric columns to fill
+               (e.g. ['ztfg', 'ztfr', 'ztfi'])
+        step: float, time step between rows
+        data_filler: float, value to use in the filler rows
+        num_repeats: int, number of repeated injections
+        add_batch_id: bool, adds batching based on repeats
+    Outputs:
+        lc_data_fix: list of tensors containing fixed lc data
+        lc_params_fix: list of tensors containing fixed lc params
+        lc_data_var:list of tensors containing varied lc data
+        lc_params_var: list of tensors containing varied lc params
+    '''
+    df_list_fix = directory_json_to_df(
+        dir_path=dir_path, 
+        label=label_fix, 
+        detection_limit=detection_limit, 
+        bands=bands)
+    df_list_var = directory_json_to_df(
+        dir_path=dir_path, 
+        label=label_var, 
+        detection_limit=detection_limit, 
+        bands=bands)
+    t_min, t_max = find_min_max_t(df_list_var)
+    num_points = len(np.arange(t_min, t_max, step)) + 1
+    padded_list_fix = pad_all_dfs(
+        df_list_fix, 
+        t_min=t_min, 
+        t_max=t_max, 
+        step=step, 
+        data_filler=data_filler, 
+        bands=bands)
+    padded_list_var = pad_all_dfs(
+        df_list_var, 
+        t_min=t_min, 
+        t_max=t_max, 
+        step=step, 
+        data_filler=data_filler, 
+        bands=bands)
+    all_padded_lcs_fix = pd.concat(padded_list_fix).reset_index(drop=True)
+    all_padded_lcs_var = pd.concat(padded_list_var).reset_index(drop=True)
+    inj_df_fix = grab_injection(inj_file=inj_file_fix, dir_path=dir_path_fix)
+    inj_df_var = grab_injection(inj_file=inj_file_var, dir_path=dir_path_var)
+    lc_df_fix = all_padded_lcs_fix.merge(inj_df_fix, on='simulation_id')
+    lc_df_var = all_padded_lcs_var.merge(inj_df_var, on='simulation_id')
+    if num_repeats <= 0:
+        print('Warning: num_repeats must be at least 1 (for one lc!).' + 
+              'Defaulting to 1.')
+        num_repeats = 1
+    if add_batch_id == True:
+        lc_df_fix['batch_id'] = lc_df_fix.index // (num_points * num_repeats)
+        lc_df_var['batch_id'] = lc_df_var.index // (num_points * num_repeats)
+    lc_data_fix, lc_params_fix = df_to_tensor(
+        lc_df=lc_df_fix,
+        params=params,
+        bands=bands,
+        num_repeats=num_repeats,
+        num_points=num_points
+    )
+    lc_data_var, lc_params_var = df_to_tensor(
+        lc_df=lc_df_var,
+        params=params,
+        bands=bands,
+        num_repeats=num_repeats,
+        num_points=num_points
+    )
+    return lc_data_fix, lc_params_fix, lc_data_var, lc_params_var
+
+
+
+
+
 
 def load_in_data(data_dir, name, csv_no, num_points=num_points, num_repeats=num_repeats):
     '''
@@ -315,37 +448,6 @@ def load_in_data(data_dir, name, csv_no, num_points=num_points, num_repeats=num_
         batch_no += 1
     data_df['batch_id'] = batch_list
     return data_df
-
-def df_to_tensor(
-    lc_df, params, bands, num_repeats, num_points
-):
-    '''
-    Converts dataframes into pytorch tensors
-    Inputs:
-        lc_df: DataFrame, contains data and injection parameters
-        bands:
-        num_repeats:
-        num_points:
-    Outputs:        
-    '''
-    num_channels = len(bands)
-    num_batches = lc_df['batch_id'].max()
-    tensor_data = []
-    tensor_params = []
-    for idx in tqdm(range(0, num_batches)):
-        lc_data = torch.tensor(
-            lc_df[bands].loc[lc_df['batch_id'] == idx].values.reshape(
-                num_repeats, num_points, num_channels
-            ), 
-            dtype=torch.float32
-        ).transpose(1, 2)
-        lc_params = torch.tensor(
-            lc_df[params].loc[lc_df['batch_id'] == idx].iloc[::num_points].values, 
-            dtype=torch.float32
-        ).unsqueeze(2).transpose(1,2)
-        tensor_data.append(lc_data)
-        tensor_params.append(lc_params)
-    return lc_data, lc_params
     
 def match_fix_to_var(data_dir, name1, name2, start, stop, num_points=num_points, num_repeats=num_repeats):
     '''
