@@ -315,6 +315,37 @@ def load_in_data(data_dir, name, csv_no, num_points=num_points, num_repeats=num_
         batch_no += 1
     data_df['batch_id'] = batch_list
     return data_df
+
+def df_to_tensor(
+    lc_df, params, bands, num_repeats, num_points
+):
+    '''
+    Converts dataframes into pytorch tensors
+    Inputs:
+        lc_df: DataFrame, contains data and injection parameters
+        bands:
+        num_repeats:
+        num_points:
+    Outputs:        
+    '''
+    num_channels = len(bands)
+    num_batches = lc_df['batch_id'].max()
+    tensor_data = []
+    tensor_params = []
+    for idx in tqdm(range(0, num_batches)):
+        lc_data = torch.tensor(
+            lc_df[bands].loc[lc_df['batch_id'] == idx].values.reshape(
+                num_repeats, num_points, num_channels
+            ), 
+            dtype=torch.float32
+        ).transpose(1, 2)
+        lc_params = torch.tensor(
+            lc_df[params].loc[lc_df['batch_id'] == idx].iloc[::num_points].values, 
+            dtype=torch.float32
+        ).unsqueeze(2).transpose(1,2)
+        tensor_data.append(lc_data)
+        tensor_params.append(lc_params)
+    return lc_data, lc_params
     
 def match_fix_to_var(data_dir, name1, name2, start, stop, num_points=num_points, num_repeats=num_repeats):
     '''
@@ -407,34 +438,6 @@ def matched(data_dir, name1, name2, start, stop, num_points=num_points, num_repe
     matched_df = pd.concat(matched_list)
     return matched_df
 
-def add_batch_sim_nums_all(df, num_points=num_points, num_repeats=num_repeats):
-    '''
-    Adds a simulation and batch id number to each light curve
-    Inputs:
-        df: dataframe containing light curve data
-        num_points: number of points in the light curve
-        num_repeats: number of repeated mass, velocity, lanthanide injections
-    Outputs:
-        None
-    '''
-    num_batches_split = int((len(df)/num_points)/num_repeats)
-    batch_list_split = []
-    batch_no = 0
-    for i in range(0, num_batches_split):
-        for j in range(0, num_repeats*num_points):
-            batch_list_split.append(batch_no)
-        batch_no += 1
-    df['batch_id'] = batch_list_split
-
-    num_sims_split = int(len(df)/num_points)
-    sim_list_split = []
-    sim_no = 0
-    for i in range(0, num_sims_split):
-        for j in range(0, num_points):
-            sim_list_split.append(sim_no)
-        sim_no += 1
-    df['sim_id'] = sim_list_split
-
 def get_test_names(path, label, set, num):
     ''' 
     Gets the file path for the fixed data
@@ -451,38 +454,6 @@ def get_test_names(path, label, set, num):
         one_name = path + '/{}{}_{}.json'.format(label, set, i)
         file_names[i] = one_name
     return file_names
-
-def repeated_df_to_tensor(df_varied, df_fixed, batches):
-    '''
-    Converts dataframes into pytorch tensors
-    Inputs:
-        df_varied: dataframe containing the shifted light curve information
-        df_fixed: dataframe containing the analagous fixed light curve information
-        batches: number of unique mass, velocity, and lanthanide injections
-    Outputs:
-        data_shifted_list: list of tensors of shape [repeats, channels, num_points] containing the shifted light curve photometry
-        data_unshifted_list: list of tensors of shape [repeats, channels, num_points] containing the fixed light curve photometry
-        param_shifted_list: list of tensors of shape [repeats, 1, 5] containing the injection parameters of the shifted light curves
-        param_unshifted_list: list of tensors of shape [repeats, 1, 5] containing the injection parameters of the fixed light curves
-    '''
-    data_shifted_list = []
-    data_unshifted_list = []
-    param_shifted_list = []
-    param_unshifted_list = []
-    for idx in tqdm(range(0, batches)):
-        data_shifted = torch.tensor(df_varied.loc[df_varied['batch_id'] == idx].iloc[:, 1:4].values.reshape(num_repeats, num_points, num_channels), 
-                                    dtype=torch.float32).transpose(1, 2)
-        data_unshifted = torch.tensor(df_fixed.loc[df_fixed['batch_id'] == idx].iloc[:, 1:4].values.reshape(num_repeats, num_points, num_channels), 
-                                    dtype=torch.float32).transpose(1, 2)
-        param_shifted = torch.tensor(df_varied.loc[df_varied['batch_id'] == idx].iloc[::num_points, 6:11].values, 
-                                    dtype=torch.float32).unsqueeze(2).transpose(1,2)
-        param_unshifted = torch.tensor(df_fixed.loc[df_fixed['batch_id'] == idx].iloc[::num_points, 5:10].values, 
-                                    dtype=torch.float32).unsqueeze(2).transpose(1,2)
-        data_shifted_list.append(data_shifted)
-        data_unshifted_list.append(data_unshifted)
-        param_shifted_list.append(param_shifted)
-        param_unshifted_list.append(param_unshifted)
-    return data_shifted_list, data_unshifted_list, param_shifted_list, param_unshifted_list
 
 class Paper_data(Dataset):
     def __init__(self, data_shifted_paper, data_unshifted_paper,
