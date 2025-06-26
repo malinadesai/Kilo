@@ -416,44 +416,27 @@ def load_embedding_dataset(
     
     return lc_data_var, lc_params_var, lc_data_fix, lc_params_fix 
 
-def get_test_names(path, label, set, num):
-    ''' 
-    Gets the file path for the fixed data
-    Inputs:
-        path = string, directory to point to
-        label = string, label assigned during nmma light curve generation
-        set = int, number in directory name
-        num = int, number of files to unpack
-    Returns: 
-        list, contains full path file names
-    '''
-    file_names = [0] * num
-    for i in range(0, num):
-        one_name = path + '/{}{}_{}.json'.format(label, set, i)
-        file_names[i] = one_name
-    return file_names
-
-class Paper_data(Dataset):
-    def __init__(self, data_shifted_paper, data_unshifted_paper,
-                 param_shifted_paper, param_unshifted_paper,
-                 num_batches_paper_sample):
+class Embedding_Data(Dataset):
+    def __init__(
+        self, 
+        lc_data_var, 
+        lc_params_var, 
+        lc_data_fix=None, 
+        lc_params_fix=None
+    ):
         super().__init__()
-        self.data_shifted_paper = data_shifted_paper
-        self.data_unshifted_paper = data_unshifted_paper
-        self.param_shifted_paper = param_shifted_paper
-        self.param_unshifted_paper = param_unshifted_paper
-        self.num_batches_paper_sample = num_batches_paper_sample
+        self.lc_data_var = lc_data_var
+        self.lc_params_var = lc_params_var
+        self.lc_data_fix = lc_data_fix
+        self.lc_params_fix = lc_params_fix
 
     def __len__(self):
-        return self.num_batches_paper_sample
+        return len(self.lc_data_var)
 
     def __getitem__(self, idx):
-        if torch.is_tensor(idx):
-            idx = idx.tolist()
-            
         return (
-            self.param_shifted_paper[idx].to(device),
-            self.param_unshifted_paper[idx].to(device),
-            self.data_shifted_paper[idx].to(device),
-            self.data_unshifted_paper[idx].to(device)
+            self.lc_data_var[idx],
+            self.lc_params_var[idx],
+            self.lc_data_fix[idx] if self.lc_data_fix is not None else torch.tensor([]),
+            self.lc_params_fix[idx] if self.lc_params_fix is not None else torch.tensor([])
         )
