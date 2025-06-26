@@ -115,7 +115,7 @@ def directory_json_to_df(
             df = json_to_df(
                 file, dir_path, detection_limit, bands
             )
-            df['sim_id'] = extract_number(file)
+            df['simulation_id'] = extract_number(file)
             df_list.append(df)
     return df_list
 
@@ -148,7 +148,7 @@ def pad_the_data(df, t_min, t_max, step, data_filler, bands):
         return pd.DataFrame({
             't': times,
             **{f: data_filler for f in bands},
-            'sim_id': np.nan,
+            'simulation_id': np.nan,
             'num_detections': np.nan
         })
 
@@ -186,12 +186,12 @@ def pad_all_dfs(
     padded_df_list = []
     for i in tqdm(range(len(df_list))):
         df = df_list[i]
-        sim_num = df.iloc[0, df.columns.get_loc('sim_id')]
+        sim_num = df.iloc[0, df.columns.get_loc('simulation_id')]
         det_num = df.iloc[0, df.columns.get_loc('num_detections')]
         df = pad_the_data(
             df, t_min, t_max, step, data_filler, bands
         )
-        df['sim_id'] = np.full(len(df), sim_num)
+        df['simulation_id'] = np.full(len(df), sim_num)
         df['num_detections'] = np.full(len(df), det_num)
         padded_df_list.append(df)
     return padded_df_list
@@ -320,60 +320,54 @@ def df_to_tensor(
     return tensor_data, tensor_params
 
 def load_embedding_dataset(
-    dir_path_fix,
-    dir_path_var, 
-    inj_file_fix,
+    dir_path_var,
     inj_file_var, 
-    label_fix,
     label_var,
+    dir_path_fix,
+    inj_file_fix,
+    label_fix,
     detection_limit, 
     bands, 
     step, 
     data_filler,
+    params,
     num_repeats=1,
-    add_batch_id=True,
 ):
     '''
     Loads NMMA generated lc's into tensors suitable for training
+    Fixed variables are optional and can be replaced with None
     Inputs:
-        dir_path_fix: string, directory path for fixed lcs
         dir_path_var: string, directory path for varied lcs
-        inj_file_fix: string, injection file name for fixed lcs
         inj_file_var: string, injection file name for varied lcs
-        label_fix: string, label assigned to fixed lcs
         label_var: string, label assigned to varied lcs
+        dir_path_fix: string/None, directory path for fixed lcs
+        inj_file_fix: string/None, injection file name for fixed lcs
+        label_fix: string/None, label assigned to fixed lcs
         detection_limit: float, photometric detection limit
         bands: list of photometric columns to fill
                (e.g. ['ztfg', 'ztfr', 'ztfi'])
         step: float, time step between rows
         data_filler: float, value to use in the filler rows
+        params: list of injection parameters
         num_repeats: int, number of repeated injections
-        add_batch_id: bool, adds batching based on repeats
     Outputs:
         lc_data_fix: list of tensors containing fixed lc data
         lc_params_fix: list of tensors containing fixed lc params
         lc_data_var:list of tensors containing varied lc data
         lc_params_var: list of tensors containing varied lc params
     '''
-    df_list_fix = directory_json_to_df(
-        dir_path=dir_path, 
-        label=label_fix, 
-        detection_limit=detection_limit, 
-        bands=bands)
+    if num_repeats <= 0:
+        print('Warning: num_repeats must be at least 1 (for one lc!).' + 
+              'Defaulting to 1.')
+        num_repeats = 1
+        
     df_list_var = directory_json_to_df(
-        dir_path=dir_path, 
+        dir_path=dir_path_var, 
         label=label_var, 
         detection_limit=detection_limit, 
         bands=bands)
     t_min, t_max = find_min_max_t(df_list_var)
     num_points = len(np.arange(t_min, t_max, step)) + 1
-    padded_list_fix = pad_all_dfs(
-        df_list_fix, 
-        t_min=t_min, 
-        t_max=t_max, 
-        step=step, 
-        data_filler=data_filler, 
-        bands=bands)
     padded_list_var = pad_all_dfs(
         df_list_var, 
         t_min=t_min, 
@@ -381,26 +375,10 @@ def load_embedding_dataset(
         step=step, 
         data_filler=data_filler, 
         bands=bands)
-    all_padded_lcs_fix = pd.concat(padded_list_fix).reset_index(drop=True)
     all_padded_lcs_var = pd.concat(padded_list_var).reset_index(drop=True)
-    inj_df_fix = grab_injection(inj_file=inj_file_fix, dir_path=dir_path_fix)
     inj_df_var = grab_injection(inj_file=inj_file_var, dir_path=dir_path_var)
-    lc_df_fix = all_padded_lcs_fix.merge(inj_df_fix, on='simulation_id')
     lc_df_var = all_padded_lcs_var.merge(inj_df_var, on='simulation_id')
-    if num_repeats <= 0:
-        print('Warning: num_repeats must be at least 1 (for one lc!).' + 
-              'Defaulting to 1.')
-        num_repeats = 1
-    if add_batch_id == True:
-        lc_df_fix['batch_id'] = lc_df_fix.index // (num_points * num_repeats)
-        lc_df_var['batch_id'] = lc_df_var.index // (num_points * num_repeats)
-    lc_data_fix, lc_params_fix = df_to_tensor(
-        lc_df=lc_df_fix,
-        params=params,
-        bands=bands,
-        num_repeats=num_repeats,
-        num_points=num_points
-    )
+    lc_df_var['batch_id'] = lc_df_var.index // (num_points * num_repeats)
     lc_data_var, lc_params_var = df_to_tensor(
         lc_df=lc_df_var,
         params=params,
@@ -408,7 +386,35 @@ def load_embedding_dataset(
         num_repeats=num_repeats,
         num_points=num_points
     )
-    return lc_data_fix, lc_params_fix, lc_data_var, lc_params_var
+
+    if dir_path_fix and inj_file_fix and label_fix:
+        df_list_fix = directory_json_to_df(
+            dir_path=dir_path_fix, 
+            label=label_fix, 
+            detection_limit=detection_limit, 
+            bands=bands)
+        padded_list_fix = pad_all_dfs(
+            df_list_fix, 
+            t_min=t_min, 
+            t_max=t_max, 
+            step=step, 
+            data_filler=data_filler, 
+            bands=bands)
+        all_padded_lcs_fix = pd.concat(padded_list_fix).reset_index(drop=True)
+        inj_df_fix = grab_injection(inj_file=inj_file_fix, dir_path=dir_path_fix)
+        lc_df_fix = all_padded_lcs_fix.merge(inj_df_fix, on='simulation_id')
+        lc_df_fix['batch_id'] = lc_df_fix.index // (num_points * num_repeats)
+        lc_data_fix, lc_params_fix = df_to_tensor(
+            lc_df=lc_df_fix,
+            params=params,
+            bands=bands,
+            num_repeats=num_repeats,
+            num_points=num_points
+        )
+    else:
+        lc_data_fix, lc_params_fix = None, None
+    
+    return lc_data_var, lc_params_var, lc_data_fix, lc_params_fix 
 
 def get_test_names(path, label, set, num):
     ''' 
