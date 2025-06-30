@@ -8,12 +8,6 @@ from .resnet import ResNet
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-bands = ['ztfg', 'ztfr', 'ztfi']
-detection_limit = 22.0
-num_repeats = 50
-num_channels = 3
-num_points = 121
-
 class VICRegLoss(nn.Module):
     ''' 
     Variance-Invariance-Covariance Regularization Loss Function
@@ -69,8 +63,17 @@ class ConvResidualBlock(nn.Module):
         self.activation = activation
         self.use_batch_norm = use_batch_norm
         if use_batch_norm:
-            self.batch_norm_layers = nn.ModuleList([nn.BatchNorm1d(channels, eps=1e-3) for _ in range(2)])
-        self.conv_layers = nn.ModuleList([nn.Conv1d(channels, channels, kernel_size=kernel_size, padding='same') for _ in range(2)])
+            self.batch_norm_layers = nn.ModuleList(
+                [nn.BatchNorm1d(channels, eps=1e-3) for _ in range(2)]
+            )
+        self.conv_layers = nn.ModuleList(
+            [nn.Conv1d(
+                channels, 
+                channels, 
+                kernel_size=kernel_size, 
+                padding='same') for _ in range(2)
+            ]
+        )
         self.dropout = nn.Dropout(p=dropout_probability)
         if zero_initialization:
             nn.init.uniform_(self.conv_layers[-1].weight, -1e-3, 1e-3)
@@ -115,7 +118,12 @@ class ConvResidualNet(nn.Module):
         '''
         super().__init__()
         self.hidden_channels = hidden_channels
-        self.initial_layer = nn.Conv1d(in_channels=in_channels, out_channels=hidden_channels, kernel_size=kernel_size, padding='same')
+        self.initial_layer = nn.Conv1d(
+            in_channels=in_channels, 
+            out_channels=hidden_channels, 
+            kernel_size=kernel_size, 
+            padding='same'
+        )
         self.blocks = nn.ModuleList(
             [ConvResidualBlock(
                 channels=hidden_channels, 
@@ -123,8 +131,15 @@ class ConvResidualNet(nn.Module):
                 dropout_probability=dropout_probability, 
                 use_batch_norm=use_batch_norm, 
                 kernel_size=kernel_size) 
-             for _ in range(num_blocks)])
-        self.final_layer = nn.Conv1d(hidden_channels, out_channels, kernel_size=kernel_size, padding='same')
+             for _ in range(num_blocks)
+            ]
+        )
+        self.final_layer = nn.Conv1d(
+            hidden_channels, 
+            out_channels, 
+            kernel_size=kernel_size, 
+            padding='same'
+        )
 
     def forward(self, inputs):
         temps = self.initial_layer(inputs)
@@ -145,21 +160,28 @@ class SimilarityEmbedding(nn.Module):
                  num_blocks=4, 
                  kernel_size=5, 
                  num_dim_final=10, 
+                 expander_dim=150,
                  activation=torch.tanh,
                  num_channels=num_channels,
                  num_points=num_points
                 ):
+        self.expander_dim = expander_dim
         super(SimilarityEmbedding, self).__init__()
         self.layer_norm = nn.LayerNorm([num_channels, num_points])
         self.num_hidden_layers_f = num_hidden_layers_f
         self.num_hidden_layers_h = num_hidden_layers_h
-        self.layers_f = ResNet(num_ifos=[3,None], layers=[2,2], kernel_size=kernel_size, context_dim=100)
+        self.layers_f = ResNet(
+            num_ifos=[3,None], 
+            layers=[2,2], 
+            kernel_size=kernel_size, 
+            context_dim=100
+        )
         self.contraction_layer = nn.Linear(in_features=100, out_features=num_dim)
-        # self.layers_f = ConvResidualNet(in_channels=num_channels, out_channels=1, hidden_channels=20, num_blocks=num_blocks, kernel_size=kernel_size)
-        # self.contraction_layer = nn.Linear(in_features=in_features, out_features=num_dim)
-        self.expander_layer = nn.Linear(num_dim, 20)
-        self.layers_h = nn.ModuleList([nn.Linear(20, 20) for _ in range(num_hidden_layers_h)])
-        self.final_layer = nn.Linear(20, num_dim_final)
+        self.expander_layer = nn.Linear(num_dim, self.expander_dim)
+        self.layers_h = nn.ModuleList(
+            [nn.Linear(self.expander_dim, self.expander_dim) for _ in range(num_hidden_layers_h)]
+        )
+        self.final_layer = nn.Linear(self.expander_dim, num_dim_final)
         self.activation = activation
         
     def forward(self, x):
@@ -224,7 +246,7 @@ def train_one_epoch_se(epoch_index,
         if idx % n == 0:
             last_sim_loss = running_sim_loss / n
             if verbose == True:
-                print(' Avg. train loss/batch after {} batches = {:.4f}'.format(idx, last_sim_loss))
+                print('Avg. train loss/batch after {} batches = {:.4f}'.format(idx, last_sim_loss))
                 print(f'Last {_repr.item():.2f}; {_cov.item():.2f}; {_std.item():.2f}')
             tb_x = epoch_index * len(data_loader) + idx
             tb_writer.add_scalar('SimLoss/train', last_sim_loss, tb_x)
