@@ -441,7 +441,11 @@ def normalize_params(lc_params, param_mins, param_maxs):
         lc_params_normed: tensor, shape [batch, repeat, num_params]
     """
     param_range = param_maxs - param_mins
-    param_range = torch.where(param_range == 0, torch.ones_like(param_range), param_range)
+    param_range = torch.where(
+        param_range == 0, 
+        torch.ones_like(param_range), 
+        param_range
+    )
     lc_params_normed = (lc_params - param_mins) / param_range
     return lc_params_normed
 
