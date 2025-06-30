@@ -416,6 +416,35 @@ def load_embedding_dataset(
     
     return lc_data_var, lc_params_var, lc_data_fix, lc_params_fix 
 
+def min_max_params(lc_params):
+    '''
+    Gets the minimum and maximum value of all parameters in a tensor
+    Inputs:
+        lc_params: tensor, shape [batch, repeats, num_params]
+    Outputs:
+        param_mins: tensor, shape [num_params], minimum values
+        param_maxs: tensor, shape [num_params], maximum values
+    '''
+    flat_params = lc_params.reshape(-1, lc_params.shape[-1])
+    param_mins = flat_params.min(dim=0).values
+    param_maxs = flat_params.max(dim=0).values
+    return param_mins, param_maxs
+
+def normalize_params(lc_params, param_mins, param_maxs):
+    """
+    Applies min-max normalization to lc_params using provided per-param min/max.
+    Inputs:
+        lc_params: tensor, shape [batch, repeat, param]
+        param_mins: tensor, shape [num_params], minimum values
+        param_maxs: tensor, shape [num_params], maximum values
+    Returns:
+        lc_params_normed: tensor, shape [batch, repeat, num_params]
+    """
+    param_range = param_maxs - param_mins
+    param_range = torch.where(param_range == 0, torch.ones_like(param_range), param_range)
+    lc_params_normed = (lc_params - param_mins) / param_range
+    return lc_params_normed
+
 class Embedding_Data(Dataset):
     def __init__(
         self, 
