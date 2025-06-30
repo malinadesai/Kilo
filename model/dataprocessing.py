@@ -335,26 +335,25 @@ def load_embedding_dataset(
 ):
     '''
     Loads NMMA generated lc's into tensors suitable for training
-    Fixed variables are optional and can be replaced with None
     Inputs:
+        dir_path_fix: string, directory path for fixed lcs
         dir_path_var: string, directory path for varied lcs
+        inj_file_fix: string, injection file name for fixed lcs
         inj_file_var: string, injection file name for varied lcs
+        label_fix: string, label assigned to fixed lcs
         label_var: string, label assigned to varied lcs
-        dir_path_fix: string/None, directory path for fixed lcs
-        inj_file_fix: string/None, injection file name for fixed lcs
-        label_fix: string/None, label assigned to fixed lcs
         detection_limit: float, photometric detection limit
         bands: list of photometric columns to fill
                (e.g. ['ztfg', 'ztfr', 'ztfi'])
         step: float, time step between rows
-        data_filler: float, value to use in the filler rows
+        data_filler: float, value to use for data padding
         params: list of injection parameters
         num_repeats: int, number of repeated injections
     Outputs:
-        lc_data_fix: list of tensors containing fixed lc data
-        lc_params_fix: list of tensors containing fixed lc params
-        lc_data_var:list of tensors containing varied lc data
-        lc_params_var: list of tensors containing varied lc params
+        lc_data_fix: tensor containing fixed lc data
+        lc_params_fix: tensor containing fixed lc params
+        lc_data_var: tensor containing varied lc data
+        lc_params_var: tensor containing varied lc params
     '''
     if num_repeats <= 0:
         print('Warning: num_repeats must be at least 1 (for one lc!).' + 
@@ -386,6 +385,8 @@ def load_embedding_dataset(
         num_repeats=num_repeats,
         num_points=num_points
     )
+    lc_data_var = torch.stack(lc_data_var, dim=0)
+    lc_params_var = torch.stack(lc_params_var, dim=0)
 
     if dir_path_fix and inj_file_fix and label_fix:
         df_list_fix = directory_json_to_df(
@@ -411,6 +412,8 @@ def load_embedding_dataset(
             num_repeats=num_repeats,
             num_points=num_points
         )
+        lc_data_fix = torch.stack(lc_data_fix, dim=0)
+        lc_params_fix = torch.stack(lc_params_fix, dim=0)
     else:
         lc_data_fix, lc_params_fix = None, None
     
