@@ -162,8 +162,8 @@ class SimilarityEmbedding(nn.Module):
                  num_dim_final=10, 
                  expander_dim=150,
                  activation=torch.tanh,
-                 num_channels=num_channels,
-                 num_points=num_points
+                 num_channels=3,
+                 num_points=121,
                 ):
         self.expander_dim = expander_dim
         super(SimilarityEmbedding, self).__init__()
