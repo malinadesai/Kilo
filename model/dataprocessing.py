@@ -507,9 +507,9 @@ class Embedding_Data(Dataset):
         param_mins, param_maxs = min_max_params(self.lc_params_var)
         self.lc_params_var = normalize_params(lc_params_var, param_mins, param_maxs)
         self.lc_params_fix = normalize_params(lc_params_fix, param_mins, param_maxs)
-        global_mean, global_std = min_max_lc(lc_data_var)
-        lc_data_var_norm = normalize_lc(lc_data_var, global_mean, global_std)
-        lc_data_fix_norm = normalize_lc(lc_data_fix, global_mean, global_std)
+        global_mean, global_std = global_mean_std_lc(lc_data_var)
+        self.lc_data_var = self.lc_data_var.sub_(global_mean).div_(global_std)
+        self.lc_data_fix = self.lc_data_fix.sub_(global_mean).div_(global_std)
 
     def __len__(self):
         return len(self.lc_data_var)
