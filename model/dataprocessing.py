@@ -495,8 +495,10 @@ class Embedding_Data(Dataset):
         self, 
         lc_data_var, 
         lc_params_var, 
-        lc_data_fix=None, 
-        lc_params_fix=None
+        lc_data_fix, 
+        lc_params_fix,
+        detection_limits,
+        data_fillers,
     ):
         super().__init__()
         self.lc_data_var = lc_data_var
@@ -507,7 +509,7 @@ class Embedding_Data(Dataset):
         param_mins, param_maxs = min_max_params(self.lc_params_var)
         self.lc_params_var = normalize_params(lc_params_var, param_mins, param_maxs)
         self.lc_params_fix = normalize_params(lc_params_fix, param_mins, param_maxs)
-        global_mean, global_std = global_mean_std_lc(lc_data_var)
+        global_mean, global_std = global_mean_std_lc(lc_data_var, detection_limits, data_fillers)
         self.lc_data_var = self.lc_data_var.sub_(global_mean).div_(global_std)
         self.lc_data_fix = self.lc_data_fix.sub_(global_mean).div_(global_std)
 
@@ -518,6 +520,6 @@ class Embedding_Data(Dataset):
         return (
             self.lc_data_var[idx],
             self.lc_params_var[idx],
-            self.lc_data_fix[idx] if self.lc_data_fix is not None else torch.tensor([]),
-            self.lc_params_fix[idx] if self.lc_params_fix is not None else torch.tensor([])
+            self.lc_data_fix[idx],
+            self.lc_params_fix[idx]
         )
