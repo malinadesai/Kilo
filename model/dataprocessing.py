@@ -52,13 +52,13 @@ def get_names(
     return file_names
 
 def json_to_df(
-    file_name, dir_path, detection_limit, bands
+    file_name, dir_path, detection_limits, bands,
 ):
     ''' 
     Flattens a light curve json file into a DataFrame
     Inputs:
         file_name: light curve json file name
-        detection_limit: float, photometric detection limit
+        detection_limits: list, photometric detection limits per band
         bands: list, contains the json photometry keys as strings
     Outputs:
         df_unpacked: DataFrame containing the photometry data, time, 
@@ -73,7 +73,7 @@ def json_to_df(
             df[bands[j]].tolist(), index= df.index
         )
         for val in df_unpacked[bands[j]]:
-            if val != detection_limit:
+            if val != detection_limits[j]:
                 counter += 1
             else:
                 pass
@@ -97,14 +97,14 @@ def extract_number(
         return float("inf")
 
 def directory_json_to_df(
-    dir_path, label, detection_limit, bands
+    dir_path, label, detection_limits, bands
 ):
     '''
     Takes a directory of light curves and converts them to DataFrames
     Inputs:
         dir_path: directory containing light curve files
         label: string, label used when generating the light curve data
-        detection_limit: float, photometric detection limit
+        detection_limits: list, photometric detection limit per band
         bands: list, contains the json photometry keys as strings
     Outputs:
         df_list: list, contains all files as DataFrames
@@ -113,13 +113,13 @@ def directory_json_to_df(
     for file in sorted(os.listdir(dir_path), key=extract_number):
         if file.endswith(".json") and file.startswith(label):
             df = json_to_df(
-                file, dir_path, detection_limit, bands
+                file, dir_path, detection_limits, bands
             )
             df['simulation_id'] = extract_number(file)
             df_list.append(df)
     return df_list
 
-def pad_the_data(df, t_min, t_max, step, data_filler, bands):
+def pad_the_data(df, t_min, t_max, step, data_fillers, bands):
     '''
     Takes DataFrames and adds filler values to both ends, preserves 
     original time information.
@@ -128,7 +128,7 @@ def pad_the_data(df, t_min, t_max, step, data_filler, bands):
         t_min: float, global minimum start time
         t_max: float, global maximum end time
         step: float, time step between rows
-        data_filler: value to use in the filler rows
+        data_fillers: list, to use in the filler rows
         bands: list of photometric columns to fill
                 (e.g. ['ztfg', 'ztfr', 'ztfi'])
     Outputs:
@@ -147,7 +147,7 @@ def pad_the_data(df, t_min, t_max, step, data_filler, bands):
     def make_filler(times):
         return pd.DataFrame({
             't': times,
-            **{f: data_filler for f in bands},
+            **{band: [val] * len(times) for band, val in zip(bands, data_fillers)},
             'simulation_id': np.nan,
             'num_detections': np.nan
         })
@@ -162,7 +162,7 @@ def pad_the_data(df, t_min, t_max, step, data_filler, bands):
     f"End time is {df_padded['t'].max()}, expected {t_max - step}"
     try:
         assert len(df_padded) == num_points+1, \
-        f"Length is {len(df_padded)}, expected {num_points+1}"
+        f"Lengthb is {len(df_padded)}, expected {num_points+1}"
     except AssertionError as e:
         count = num_points + 1 - len(df_padded)
         addt_times = np.arange(t_max, t_max+(step*count), step)
@@ -174,7 +174,7 @@ def pad_the_data(df, t_min, t_max, step, data_filler, bands):
     return df_padded
 
 def pad_all_dfs(
-    df_list, t_min, t_max, step, data_filler, bands
+    df_list, t_min, t_max, step, data_fillers, bands
 ):
     '''
     Pads multiple DataFrames at a time
@@ -189,7 +189,7 @@ def pad_all_dfs(
         sim_num = df.iloc[0, df.columns.get_loc('simulation_id')]
         det_num = df.iloc[0, df.columns.get_loc('num_detections')]
         df = pad_the_data(
-            df, t_min, t_max, step, data_filler, bands
+            df, t_min, t_max, step, data_fillers, bands
         )
         df['simulation_id'] = np.full(len(df), sim_num)
         df['num_detections'] = np.full(len(df), det_num)
@@ -236,10 +236,10 @@ def load_light_curves_df(
     dir_path, 
     inj_file, 
     label, 
-    detection_limit, 
+    detection_limits, 
     bands, 
     step, 
-    data_filler,
+    data_fillers,
     num_repeats=1,
     add_batch_id=False,
 ):
@@ -249,11 +249,11 @@ def load_light_curves_df(
         dir_path: string, directory path
         inj_file: string, injection file name
         label: string, label assigned during nmma light curve generation
-        detection_limit: float, photometric detection limit
+        detection_limits: list, photometric detection limit per band
         bands: list of photometric columns to fill
                (e.g. ['ztfg', 'ztfr', 'ztfi'])
         step: float, time step between rows
-        data_filler: float, value to use in the filler rows
+        data_fillers: list, value to use in the filler rows per band
         num_repeats: int, number of repeated injections
         add_batch_id: bool, adds batching based on repeats
     Outputs:
@@ -262,7 +262,7 @@ def load_light_curves_df(
     df_list = directory_json_to_df(
         dir_path=dir_path, 
         label=label, 
-        detection_limit=detection_limit, 
+        detection_limits=detection_limits, 
         bands=bands)
     t_min, t_max = find_min_max_t(df_list)
     num_points = len(np.arange(t_min, t_max, step)) + 1
@@ -271,7 +271,7 @@ def load_light_curves_df(
         t_min=t_min, 
         t_max=t_max, 
         step=step, 
-        data_filler=data_filler, 
+        data_fillers=data_fillers, 
         bands=bands)
     all_padded_lcs = pd.concat(padded_list).reset_index(drop=True)
     inj_df = grab_injection(inj_file=inj_file, dir_path=dir_path)
@@ -326,10 +326,10 @@ def load_embedding_dataset(
     dir_path_fix,
     inj_file_fix,
     label_fix,
-    detection_limit, 
+    detection_limits, 
     bands, 
     step, 
-    data_filler,
+    data_fillers,
     params,
     num_repeats=1,
 ):
@@ -342,11 +342,11 @@ def load_embedding_dataset(
         inj_file_var: string, injection file name for varied lcs
         label_fix: string, label assigned to fixed lcs
         label_var: string, label assigned to varied lcs
-        detection_limit: float, photometric detection limit
+        detection_limits: list, photometric detection limit per band
         bands: list of photometric columns to fill
                (e.g. ['ztfg', 'ztfr', 'ztfi'])
         step: float, time step between rows
-        data_filler: float, value to use for data padding
+        data_fillers: list, values to use for data padding per band
         params: list of injection parameters
         num_repeats: int, number of repeated injections
     Outputs:
@@ -363,7 +363,7 @@ def load_embedding_dataset(
     df_list_var = directory_json_to_df(
         dir_path=dir_path_var, 
         label=label_var, 
-        detection_limit=detection_limit, 
+        detection_limits=detection_limits, 
         bands=bands)
     t_min, t_max = find_min_max_t(df_list_var)
     num_points = len(np.arange(t_min, t_max, step)) + 1
@@ -372,7 +372,7 @@ def load_embedding_dataset(
         t_min=t_min, 
         t_max=t_max, 
         step=step, 
-        data_filler=data_filler, 
+        data_fillers=data_fillers, 
         bands=bands)
     all_padded_lcs_var = pd.concat(padded_list_var).reset_index(drop=True)
     inj_df_var = grab_injection(inj_file=inj_file_var, dir_path=dir_path_var)
@@ -392,14 +392,14 @@ def load_embedding_dataset(
         df_list_fix = directory_json_to_df(
             dir_path=dir_path_fix, 
             label=label_fix, 
-            detection_limit=detection_limit, 
+            detection_limits=detection_limits, 
             bands=bands)
         padded_list_fix = pad_all_dfs(
             df_list_fix, 
             t_min=t_min, 
             t_max=t_max, 
             step=step, 
-            data_filler=data_filler, 
+            data_fillers=data_fillers, 
             bands=bands)
         all_padded_lcs_fix = pd.concat(padded_list_fix).reset_index(drop=True)
         inj_df_fix = grab_injection(inj_file=inj_file_fix, dir_path=dir_path_fix)
@@ -423,7 +423,7 @@ def min_max_params(lc_params):
     '''
     Gets the minimum and maximum value of all parameters in a tensor
     Inputs:
-        lc_params: tensor, shape [batch, repeats, num_params]
+        lc_params: tensor, shape [batch, repeats, 1, num_params]
     Outputs:
         param_mins: tensor, shape [num_params], minimum values
         param_maxs: tensor, shape [num_params], maximum values
@@ -434,15 +434,15 @@ def min_max_params(lc_params):
     return param_mins, param_maxs
 
 def normalize_params(lc_params, param_mins, param_maxs):
-    """
-    Applies min-max normalization to lc_params using provided per-param min/max.
+    '''
+    Applies min-max normalization to lc_params using provided per-param min/max
     Inputs:
-        lc_params: tensor, shape [batch, repeat, param]
+        lc_params: tensor, shape [batch, repeats, 1, num_param]
         param_mins: tensor, shape [num_params], minimum values
         param_maxs: tensor, shape [num_params], maximum values
     Returns:
-        lc_params_normed: tensor, shape [batch, repeat, num_params]
-    """
+        lc_params_normed: tensor, shape [batch, repeats, 1, num_params]
+    '''
     param_range = param_maxs - param_mins
     param_range = torch.where(
         param_range == 0, 
@@ -451,6 +451,44 @@ def normalize_params(lc_params, param_mins, param_maxs):
     )
     lc_params_normed = (lc_params - param_mins) / param_range
     return lc_params_normed
+
+def mean_std_lc(lc_data):
+    '''
+    Gets the minimum and maximum value of all parameters in a tensor
+    Inputs:
+        lc_data: tensor, shape [batch, repeats, channels, num_points]
+    Outputs:
+        param_mins: tensor, shape [num_params], minimum values
+        param_maxs: tensor, shape [num_params], maximum values
+    '''
+    flat_params = lc_params.reshape(-1, lc_params.shape[-1])
+    param_mins = flat_params.min(dim=0).values
+    param_maxs = flat_params.max(dim=0).values
+    return param_mins, param_maxs
+
+def global_mean_std_lc(lc_data, detection_limits, data_fillers):
+    '''
+    Computes a single global mean and std across all bands and time points
+    Inputs:
+        lc_data: tensor, shape [batch, repeats, channels, num_points]
+        detection_limits: list, photometric detection limits per band
+        data_fillers: list, values used for padding the data
+    Outputs:
+        global_mean: tensor, [mean] of the entire set of light curves
+        global_std: tensor, [std] of the entire set of light curves
+    '''
+    bands = lc_data.shape[2]
+    mask = torch.ones_like(lc_data, dtype=bool)
+
+    for b in range(bands):
+        mask[:, :, b, :] &= (lc_data[:, :, b, :] != detection_limits[b])
+        mask[:, :, b, :] &= (lc_data[:, :, b, :] != data_fillers[b])
+
+    valid_vals = lc_data[mask]
+    global_mean = valid_vals.mean()
+    global_std = valid_vals.std(unbiased=False) if valid_vals.numel() > 1 else 1.0
+
+    return global_mean, global_std
 
 class Embedding_Data(Dataset):
     def __init__(
@@ -465,6 +503,13 @@ class Embedding_Data(Dataset):
         self.lc_params_var = lc_params_var
         self.lc_data_fix = lc_data_fix
         self.lc_params_fix = lc_params_fix
+
+        param_mins, param_maxs = min_max_params(self.lc_params_var)
+        self.lc_params_var = normalize_params(lc_params_var, param_mins, param_maxs)
+        self.lc_params_fix = normalize_params(lc_params_fix, param_mins, param_maxs)
+        global_mean, global_std = min_max_lc(lc_data_var)
+        lc_data_var_norm = normalize_lc(lc_data_var, global_mean, global_std)
+        lc_data_fix_norm = normalize_lc(lc_data_fix, global_mean, global_std)
 
     def __len__(self):
         return len(self.lc_data_var)
