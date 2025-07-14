@@ -1,0 +1,27 @@
+detection_limits:
+  sdssu: 23.9
+  ps1__g: 25.0
+  ps1__r: 24.7
+  ps1__i: 24.0
+  ps1__z: 23.3
+  ps1__y: 22.1
+
+data_fillers:
+  sdssu: 23.9
+  ps1__g: 25.0
+  ps1__r: 24.7
+  ps1__i: 24.0
+  ps1__z: 23.3
+  ps1__y: 22.1
+  
+dir_path_var: /home/malina.desai/nmma/data/rubin_test/
+inj_file_var: injection_test_var.json
+label_var: test_var
+
+dir_path_fix: /home/malina.desai/nmma/data/rubin_test/
+inj_file_fix: injection_test_fix.json
+label_fix: test_fix
+
+step: 0.5
+num_repeats: 1
+params: ['log10_mej', 'log10_vej', 'log10_Xlan', 'luminosity_distance', 'timeshift']
