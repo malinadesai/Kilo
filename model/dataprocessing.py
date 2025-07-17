@@ -30,26 +30,62 @@ def open_json(
     f.close()
     return data
 
-def get_names(
-    path, label, set, num
-):
-    ''' 
-    Gets the file path for the fixed data
-    Inputs:
-        path: string, directory to point to
-        label: string, label assigned during nmma light curve generation
-        set: int, number in directory name
-        num: int, number of files to unpack
-    Outputs: 
-        file_names: list, contains full path file names
+def parse_prior_file(prior_path):
     '''
-    file_names = [0] * num
-    for i in range(0, num):
-        one_name = path + '/{}_batch_{}/{}_{}_{}.json'.format(
-            label, set, label, set, i
-        )
-        file_names[i] = one_name
-    return file_names
+    Extract parameter names from a prior file
+    Inputs:
+        prior_path: string, path to prior file
+    Outputs:
+        names: parameters in prior file
+    '''
+    with open(prior_path, "r") as f:
+        source = f.read()
+    names = []
+    try:
+        module = ast.parse(source)
+        for node in module.body:
+            if isinstance(node, ast.Assign):
+                if isinstance(node.targets[0], ast.Name):
+                    names.append(node.targets[0].id)
+    except Exception as e:
+        print(f"Failed to parse prior file: {e}")
+    return names
+
+def grab_injection(
+    inj_file, dir_path
+):
+    '''
+    Reads in the injection file
+    Inputs:
+        inj_file: string, injection file name
+        dir_path: string, directory path
+    Outputs:
+        inj_df: pd.DataFrame containing the injection parameters
+    '''
+    data = open_json(inj_file, dir_path)
+    content = data['injections']['content']
+    inj_df = pd.DataFrame.from_dict(content)
+    return inj_df
+
+def grab_injection_filtered(
+    inj_file, dir_path, prior_path
+):
+    '''
+    Only takes relevant parameter keys from the injection file
+    Inputs:
+        inj_file: string, injection file name
+        dir_path: string, directory path
+        prior_path: string, path to prior file
+    Outputs:
+        inj_df[filtered_keys]: pd.DataFrame containing the filtered 
+            injection parameters
+    '''
+    prior_keys = parse_prior_file(prior_path)
+    prior_keys.append('simulation_id')
+    inj_data = open_json(inj_file, dir_path)
+    inj_df = pd.DataFrame.from_dict(inj_data['injections']['content'])
+    filtered_keys = [k for k in prior_keys if k in inj_df.columns]
+    return inj_df[filtered_keys]
 
 def json_to_df(
     file_name, dir_path, detection_limits, bands,
@@ -65,21 +101,24 @@ def json_to_df(
                       and number of total detections across all bands
     '''
     data = open_json(file_name, dir_path)
-    df = pd.DataFrame.from_dict(data, orient="columns")
-    df_unpacked = pd.DataFrame(columns=bands)
+    records = []
     counter = 0
-    for j in range(len(bands)):
-        df_unpacked[['t', bands[j], 'x']] = pd.DataFrame(
-            df[bands[j]].tolist(), index= df.index
-        )
-        for val in df_unpacked[bands[j]]:
-            if val != detection_limits[j]:
+    for filt, obs_list in data.items():
+        limit = detection_limits[filt]
+        for obs in obs_list:
+            m = obs[1]
+            records.append({
+                "filter": filt,
+                "time": obs[0],
+                "mag": m,
+            })
+            if m != limit:
                 counter += 1
             else:
                 pass
-    df_unpacked['num_detections'] = np.full(len(df_unpacked), counter)
-    df_unpacked = df_unpacked.drop(columns=['x'])
-    return df_unpacked
+    df = pd.DataFrame(records)
+    df['num_detections'] = np.full(len(df), counter)
+    return df
 
 def extract_number(
     file_name
@@ -118,6 +157,63 @@ def directory_json_to_df(
             df['simulation_id'] = extract_number(file)
             df_list.append(df)
     return df_list
+
+def build_time_grid_from_prior(priors, duration=7.0, dt=0.1, round_decimals=4):
+    '''
+    Builds a global time grid to accommodate all possible timeshifted light 
+    curves.
+    Inputs:
+        priors : dict, dictionary of priors, must include a 'timeshift' key 
+            with .minimum and .maximum.
+        duration : float, duration (in days) of the light curve simulation 
+            after timeshift.
+        dt : float, time step (in days) to use for the uniform grid.
+        round_decimals : int, number of decimals to round the grid 
+            (default: 4; 0.0001 days ≈ 8.6 sec).
+    Outputs:
+        np.ndarray: rounded, uniformly spaced global time grid.
+    '''
+    min_shift = priors['timeshift'].minimum
+    max_shift = priors['timeshift'].maximum
+    t_start = min_shift
+    t_end = max_shift + duration
+    epsilon = 1e-6
+    grid = np.arange(t_start, t_end + epsilon, dt)
+    return np.round(grid, round_decimals)
+
+def align_lightcurve_to_grid(
+    df: pd.DataFrame,
+    coalescence_time: float,
+    time_offset: float,
+    time_grid: np.ndarray,
+    bands: list,
+    filler_value: dict,
+) -> np.ndarray:
+    """
+    Aligns a single light curve to a fixed time grid, padding as necessary.
+    Inputs:
+        df : pd.DataFrame, light curve with columns ['time', 'band', 'mag']
+        coalescence_time : float, absolute coalescence time in days (e.g., 44244)
+        time_offset : float, offset (in days) applied to this light curve
+        time_grid : np.ndarray, 1D array of uniformly spaced time pts. (rel. to coalescence)
+        bands : list, band names in canonical order (e.g., ['ztfg', 'ztfr', 'ztfi'])
+        filler_value : dict, mapping band name to a filler mag. (e.g., {'ztfg': 22.0, ...}).
+    Outputs:
+        aligned: np.ndarray, shape [num_bands, len(time_grid)] with aligned light curve.
+    """
+    t_rel = df["time"] - coalescence_time
+    shifted_time = t_rel - time_offset
+    df = df.copy()
+    df["shifted_time"] = shifted_time
+    aligned = np.zeros((len(bands), len(time_grid)))
+    for b_idx, band in enumerate(bands):
+        band_data = df[df['filter'] == band]
+        band_array = np.full(len(time_grid), filler_value[band])
+        for _, row in band_data.iterrows():
+            idx = np.abs(time_grid - row["shifted_time"]).argmin()
+            band_array[idx] = row["mag"]
+        aligned[b_idx] = band_array
+    return aligned
 
 def pad_the_data(df, t_min, t_max, step, data_fillers, bands):
     '''
@@ -215,22 +311,6 @@ def find_min_max_t(
     t_min = min(t_mins)
     t_max = max(t_maxs)
     return t_min, t_max
-
-def grab_injection(
-    inj_file, dir_path
-):
-    '''
-    Reads in the injection file
-    Inputs:
-        inj_file: string, injection file name
-        dir_path: string, directory path
-    Outputs:
-        inj_df: DataFrame containing the injection parameters
-    '''
-    data = open_json(inj_file, dir_path)
-    content = data['injections']['content']
-    inj_df = pd.DataFrame.from_dict(content)
-    return inj_df
 
 def load_light_curves_df(
     dir_path, 
