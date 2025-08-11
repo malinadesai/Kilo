@@ -459,7 +459,7 @@ def tensor_stacking(
     out_path,
 ):
     tensors = []
-    for i in tqdm(sorted(os.listdir(dir_path), key=extract_number):
+    for i in tqdm(sorted(os.listdir(dir_path), key=extract_number)):
         file_path = os.path.join(dir_path, f'nflow_data_{key}.pt')
         if not os.path.exists(file_path):
             print(f"Skipping missing file: {file_path}")
