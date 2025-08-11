@@ -451,8 +451,8 @@ def load_in_lightcurves(
             data_tensor = torch.from_numpy(aligned_lc)
             params = np.asarray(df.loc[0, parameters].to_list())
             param_tensor = torch.from_numpy(params).unsqueeze(0)
-            torch.save(data_tensor, dir_path + '/{}_data_{}.pt'.format(label, sim_id))
-            torch.save(param_tensor, dir_path + '/{}_params_{}.pt'.format(label, sim_id))
+            torch.save(data_tensor, save_dir + '/{}_data_{}.pt'.format(label, sim_id))
+            torch.save(param_tensor, save_dir + '/{}_params_{}.pt'.format(label, sim_id))
     
 def tensor_stacking(
     dir_path,
