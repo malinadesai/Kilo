@@ -11,6 +11,10 @@ from time import sleep
 import torch
 from torch.utils.data import Dataset, DataLoader, TensorDataset, random_split
 from os.path import exists
+import ast
+import bilby
+from bilby.core.prior import Uniform, DeltaFunction
+from bilby.core.prior import PriorDict
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -52,37 +56,39 @@ def parse_prior_file(prior_path):
     return names
 
 def grab_injection(
-    inj_file, dir_path
+    inj_path
 ):
     '''
     Reads in the injection file
     Inputs:
-        inj_file: string, injection file name
+        inj_path: string, injection file path
         dir_path: string, directory path
     Outputs:
         inj_df: pd.DataFrame containing the injection parameters
     '''
-    data = open_json(inj_file, dir_path)
+    f = open(inj_path)
+    data = json.load(f)
+    f.close()
     content = data['injections']['content']
     inj_df = pd.DataFrame.from_dict(content)
     return inj_df
 
 def grab_injection_filtered(
-    inj_file, dir_path, prior_path
+    inj_path, prior_path
 ):
     '''
     Only takes relevant parameter keys from the injection file
     Inputs:
-        inj_file: string, injection file name
-        dir_path: string, directory path
-        prior_path: string, path to prior file
+        inj_path: string, injection file path
     Outputs:
         inj_df[filtered_keys]: pd.DataFrame containing the filtered 
             injection parameters
     '''
     prior_keys = parse_prior_file(prior_path)
     prior_keys.append('simulation_id')
-    inj_data = open_json(inj_file, dir_path)
+    f = open(inj_path)
+    inj_data = json.load(f)
+    f.close()
     inj_df = pd.DataFrame.from_dict(inj_data['injections']['content'])
     filtered_keys = [k for k in prior_keys if k in inj_df.columns]
     return inj_df[filtered_keys]
@@ -158,7 +164,7 @@ def directory_json_to_df(
             df_list.append(df)
     return df_list
 
-def build_time_grid_from_prior(priors, duration=7.0, dt=0.1, round_decimals=4):
+def build_time_grid_from_prior(prior_path, duration=7.0, dt=0.1, round_decimals=4):
     '''
     Builds a global time grid to accommodate all possible timeshifted light 
     curves.
@@ -173,8 +179,9 @@ def build_time_grid_from_prior(priors, duration=7.0, dt=0.1, round_decimals=4):
     Outputs:
         np.ndarray: rounded, uniformly spaced global time grid.
     '''
-    min_shift = priors['timeshift'].minimum
-    max_shift = priors['timeshift'].maximum
+    prior = PriorDict(filename = prior_path)
+    min_shift = prior['timeshift'].minimum
+    max_shift = prior['timeshift'].maximum
     t_start = min_shift
     t_end = max_shift + duration
     epsilon = 1e-6
@@ -314,7 +321,7 @@ def find_min_max_t(
 
 def load_light_curves_df(
     dir_path, 
-    inj_file, 
+    inj_path, 
     label, 
     detection_limits, 
     bands, 
@@ -327,7 +334,7 @@ def load_light_curves_df(
     Converts NMMA generated light curves to a DataFrame
     Inputs:
         dir_path: string, directory path
-        inj_file: string, injection file name
+        inj_path: string, injection file path
         label: string, label assigned during nmma light curve generation
         detection_limits: list, photometric detection limit per band
         bands: list of photometric columns to fill
@@ -354,7 +361,7 @@ def load_light_curves_df(
         data_fillers=data_fillers, 
         bands=bands)
     all_padded_lcs = pd.concat(padded_list).reset_index(drop=True)
-    inj_df = grab_injection(inj_file=inj_file, dir_path=dir_path)
+    inj_df = grab_injection(inj_path=inj_path)
     lc_df = all_padded_lcs.merge(inj_df, on='simulation_id')
     if num_repeats <= 0:
         print('Warning: num_repeats must be at least 1 (for one lc!).' + 
@@ -399,12 +406,78 @@ def df_to_tensor(
         tensor_params.append(lc_params)
     return tensor_data, tensor_params
 
+def load_in_lightcurves(
+    inj_path,
+    dir_path,
+    prior_path,
+    label,
+    bands,
+    detection_limits,
+    duration,
+    dt,
+    parameters,
+    save_dir,
+    coalescence_time = 44244.00022,
+    round_decimals = 4,
+):
+    inj_df = grab_injection_filtered(inj_path = inj_path,
+                                     prior_path = prior_path,
+                                    )
+    time_grid = build_time_grid_from_prior(prior_path = prior_path, 
+                                           duration = duration, 
+                                           dt = dt, 
+                                           round_decimals = round_decimals,
+                                          )
+
+    for file in tqdm(sorted(os.listdir(dir_path), key=extract_number)):
+        if file.endswith(".json") and file.startswith(label):
+            df = json_to_df(
+                file, dir_path, detection_limits, bands
+            )
+            sim_id = extract_number(file)
+
+            df['simulation_id'] = sim_id
+            inj_params = inj_df.loc[inj_df['simulation_id'] == sim_id]
+            time_offset = inj_params['timeshift'].values[0]
+            df = df.merge(inj_params, on='simulation_id')
+            aligned_lc = align_lightcurve_to_grid(
+                df = df,
+                coalescence_time = coalescence_time,
+                time_offset = time_offset,
+                time_grid = time_grid,
+                bands = bands,
+                filler_value = detection_limits
+            )
+            data_tensor = torch.from_numpy(aligned_lc)
+            params = np.asarray(df.loc[0, parameters].to_list())
+            param_tensor = torch.from_numpy(params).unsqueeze(0)
+            torch.save(data_tensor, dir_path + '/{}_data_{}.pt'.format(label, sim_id))
+            torch.save(param_tensor, dir_path + '/{}_params_{}.pt'.format(label, sim_id))
+    
+def tensor_stacking(
+    dir_path,
+    out_path,
+):
+    tensors = []
+    for i in tqdm(sorted(os.listdir(dir_path), key=extract_number):
+        file_path = os.path.join(dir_path, f'nflow_data_{key}.pt')
+        if not os.path.exists(file_path):
+            print(f"Skipping missing file: {file_path}")
+            continue
+
+        tensor = torch.load(file_path)
+        tensors.append(tensor)
+    big_tensor = torch.stack(tensors)
+    torch.save(big_tensor, out_path)
+    print(f"Saved stacked tensor to {out_path} with shape {big_tensor.shape}")
+    
+    
 def load_embedding_dataset(
     dir_path_var,
-    inj_file_var, 
+    inj_path_var, 
     label_var,
     dir_path_fix,
-    inj_file_fix,
+    inj_path_fix,
     label_fix,
     detection_limits, 
     bands, 
@@ -418,8 +491,8 @@ def load_embedding_dataset(
     Inputs:
         dir_path_fix: string, directory path for fixed lcs
         dir_path_var: string, directory path for varied lcs
-        inj_file_fix: string, injection file name for fixed lcs
-        inj_file_var: string, injection file name for varied lcs
+        inj_path_fix: string, injection file path for fixed lcs
+        inj_path_var: string, injection file path for varied lcs
         label_fix: string, label assigned to fixed lcs
         label_var: string, label assigned to varied lcs
         detection_limits: list, photometric detection limit per band
@@ -455,7 +528,7 @@ def load_embedding_dataset(
         data_fillers=data_fillers, 
         bands=bands)
     all_padded_lcs_var = pd.concat(padded_list_var).reset_index(drop=True)
-    inj_df_var = grab_injection(inj_file=inj_file_var, dir_path=dir_path_var)
+    inj_df_var = grab_injection(inj_path=inj_path_var)
     lc_df_var = all_padded_lcs_var.merge(inj_df_var, on='simulation_id')
     lc_df_var['batch_id'] = lc_df_var.index // (num_points * num_repeats)
     lc_data_var, lc_params_var = df_to_tensor(
@@ -468,7 +541,7 @@ def load_embedding_dataset(
     lc_data_var = torch.stack(lc_data_var, dim=0)
     lc_params_var = torch.stack(lc_params_var, dim=0)
 
-    if dir_path_fix and inj_file_fix and label_fix:
+    if dir_path_fix and inj_path_fix and label_fix:
         df_list_fix = directory_json_to_df(
             dir_path=dir_path_fix, 
             label=label_fix, 
@@ -482,7 +555,7 @@ def load_embedding_dataset(
             data_fillers=data_fillers, 
             bands=bands)
         all_padded_lcs_fix = pd.concat(padded_list_fix).reset_index(drop=True)
-        inj_df_fix = grab_injection(inj_file=inj_file_fix, dir_path=dir_path_fix)
+        inj_df_fix = grab_injection(inj_path=inj_path_fix)
         lc_df_fix = all_padded_lcs_fix.merge(inj_df_fix, on='simulation_id')
         lc_df_fix['batch_id'] = lc_df_fix.index // (num_points * num_repeats)
         lc_data_fix, lc_params_fix = df_to_tensor(
